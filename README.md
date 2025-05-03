@@ -8,3 +8,6 @@ pip install uv
 ```bash
 uv sync
 ```
+```bash
+uv run uvicorn main:app --reload
+```
