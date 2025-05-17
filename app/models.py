@@ -1,81 +1,43 @@
 from uuid import uuid4
-from shortuuid import uuid
+# from shortuuid import uuid
 from typing import Optional
-from pydantic import BaseModel, Field
+# from pydantic import BaseModel, Field
+from sqlalchemy import Column, String, ForeignKey, JSON
+from sqlalchemy.ext.declarative import declarative_base
+from sqlmodel import SQLModel, Field, create_engine, Session, select
+
+# Base = declarative_base()
 
 
-class CompanyModel(BaseModel):
-    """
-    Модель компании
+class Company(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str = Field(index=True)
+    api_key: str = Field(index=True, unique=True, default=str(uuid4()))
 
-    Поля:
-    - id (str): Уникальный UUID компании (генерируется shortuuid)
-    - name (str): Название компании (обязательное)
-    - integration (Optional[str]): Данные интеграции
-    """
-
-    id: str = Field(
-        default_factory=lambda: uuid(),
-        description="Уникальный UUID компании",
-        primary_key=True,
-    )
-    name: str = Field(..., max_length=100, description="Название компании")
-    integration: Optional[str] = Field(
-        default=None, max_length=255, description="Конфигурация интеграции"
-    )
+# class CompanyModel(Base):
+#     __tablename__ = "companies"
+#     id = Column(String, primary_key=True, default=lambda: str(uuid4()))
+#     name = Column(String)
+#     api_key = Column(String, unique=True)
 
 
-class AdminModel(BaseModel):
-    """
-    Модель администратора с привязкой к компании
-
-    Поля:
-    - id (str): UUID администратора (генерируется shortuuid)
-    - username (str): Логин (уникальный, макс. 255 символов)
-    - key (str): Токен доступа (генерируется при создании)
-    - company_id (Optional[str]): Ссылка на UUID компании из CompanyModel
-    """
-
-    id: str = Field(
-        default_factory=lambda: uuid(), description="Уникальный UUID администратора"
-    )
-    username: str = Field(
-        ..., max_length=255, unique=True, description="Уникальное имя пользователя"
-    )
-    key: str = Field(
-        default_factory=lambda: str(uuid()), description="API-ключ доступа"
-    )
-    company_id: Optional[str] = Field(
-        default=None,
-        foreign_key="company.id",
-        description="Внешний ключ к таблице компаний",
-    )
+# class AdminModel(Base):
+#     __tablename__ = "admins"
+#     id = Column(String, primary_key=True, default=lambda: str(uuid4()))
+#     username = Column(String)
+#     company_id = Column(String, ForeignKey("companies.id"))
 
 
-class UserModel(BaseModel):
-    """
-    Модель пользователя для хранения в PostgreSQL
-
-    Поля:
-    - id (str): UUID пользователя (генерируется uuid4)
-    - username (str): Логин (уникальный, макс. 255 символов)
-    - key (str): Токен доступа (генерируется при создании)
-    """
-
-    id: str = Field(
-        default_factory=lambda: str(uuid4()), description="Уникальный UUID пользователя"
-    )
-    username: str = Field(
-        ..., max_length=255, unique=True, description="Имя пользователя"
-    )
-    key: str = Field(
-        default_factory=lambda: str(uuid4()), description="Токен авторизации"
-    )
+# class ChatModel(Base):
+#     __tablename__ = "chats"
+#     id = Column(String, primary_key=True, default=lambda: str(uuid4()))
+#     company_id = Column(String, ForeignKey("companies.id"))
+#     messages = Column(JSON)  # или отдельная таблица для сообщений
 
 
-class ChatRequestModel(BaseModel):
-    message: Optional[str] = None
-    chat_id: Optional[str] = None
+# class ChatRequestModel(BaseModel):
+#     message: Optional[str] = None
+#     chat_id: Optional[str] = None
 
 
 # class ModelInfo(BaseModel):
