@@ -65,7 +65,7 @@ class App_settings(BaseSettings):
 
     search_endpoint: str = os.getenv("VECTOR_STORE_URL", "")
     search_password: str = os.getenv("VECTOR_STORE_PASSWORD", "")
-    search_index: str = os.getenv("VECTOR_STORE_INDEX_NAME", "default")
+    search_index: str = os.getenv("VECTOR_STORE_INDEX_NAME", "searcher")
     search_admin_key: str = os.getenv("VECTOR_STORE_ADMIN_KEY", "")
     search_query_key: str = os.getenv("VECTOR_STORE_USER_KEY", "")
 

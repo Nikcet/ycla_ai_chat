@@ -19,7 +19,7 @@ from app.schemas import (
 from app.models import Company
 from app.dependencies import get_session, get_current_company
 from app.database import engine, search_client
-from app.utils import get_embedding, chunk_text
+from app.utils import get_embedding, chunk_text, extract_text
 from app.config import get_app_settings
 
 from sqlmodel import Session, select
@@ -47,19 +47,27 @@ def register_company(req: RegisterRequest, session: Session = Depends(get_sessio
 def upload_documents(
     req: UploadRequest, company: Company = Depends(get_current_company)
 ):
-    batch = []
-    for doc in req.documents:
-        for chunk in chunk_text(doc):
+    for file_path in req.documents:
+        batch = []
+        try:
+            text = extract_text(file_path)
+        except Exception as e:
+            raise HTTPException(
+                status_code=400, detail=f"Ошибка чтения файла '{file_path}': {e}"
+            )
+
+        for chunk in chunk_text(text):
             emb = get_embedding(chunk)
             batch.append(
                 {
-                    "id": f"{company.id}-{uuid()}",
-                    "company_id": company.id,
-                    "content": chunk,
-                    "embedding": emb,
+                    "id": f"{company.id}-{uuid4()}",
+                    "company_id": int(company.id),
+                    "content": str(chunk),
+                    "embedding": [float(x) for x in emb], # TODO: пока работает так, надо отрефакторить
                 }
             )
-    search_client.upload_documents(documents=batch)
+        search_client.upload_documents(documents=batch)
+    
     return {"indexed": len(batch)}
 
 
