@@ -3,6 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from app.endpoints import router
 from app import logger
+from sqlmodel import SQLModel
+from app.database import engine
 
 app = FastAPI()
 app.add_middleware(
@@ -16,9 +18,10 @@ app.add_middleware(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("Server is starting up.")
+    logger.success("Server is starting up.")
+    SQLModel.metadata.create_all(engine)
     yield
-    logger.info("Server is shutting down.")
+    logger.warning("Server is shutting down.")
 
 
 @app.get("/")
