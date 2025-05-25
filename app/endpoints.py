@@ -1,13 +1,9 @@
-from fastapi import APIRouter, HTTPException, status, Request, Depends
-# from sqlalchemy.ext.asyncio import AsyncSession
-
-# from app.database import AsyncSessionLocal
-# from app.models import AdminModel, CompanyModel
-from shortuuid import uuid
+from fastapi import APIRouter, HTTPException, Depends
+from azure.search.documents.models import VectorizedQuery
 from uuid import uuid4
+from sqlmodel import Session
+from openai.lib.azure import AzureOpenAI
 
-# from app.dependencies import Chat, Company, Admin
-from . import logger
 
 from app.schemas import (
     RegisterResponse,
@@ -16,69 +12,62 @@ from app.schemas import (
     ChatResponse,
     ChatRequest,
 )
+from app import logger
 from app.models import Company
-from app.dependencies import get_session, get_current_company
-from app.database import engine, search_client
-from app.utils import get_embedding, chunk_text, extract_text
+from app.dependencies import get_session, get_current_company, create_batch
+from app.database import search_client
+from app.utils import get_embedding
 from app.config import get_app_settings
 
-from sqlmodel import Session, select
-import openai
 
 settings = get_app_settings()
 router = APIRouter()
 
-openai.api_type = settings.api_type
-openai.api_base = settings.endpoint
-openai.api_version = settings.api_version
-openai.api_key = settings.api_key
+client = AzureOpenAI(
+    api_key=settings.api_key,
+    api_version=settings.api_version,
+    azure_endpoint=settings.endpoint,
+)
 
 
-@router.post("/admin/register", response_model=RegisterResponse)
-def register_company(req: RegisterRequest, session: Session = Depends(get_session)):
-    # api_key = uuid4()
+@router.post("/register", response_model=RegisterResponse)
+async def register_company(
+    req: RegisterRequest, session: Session = Depends(get_session)
+):
     company = Company(name=req.name)
-    session.add(company)
+    await session.add(company)
     session.commit()
     return RegisterResponse(api_key=company.api_key)
 
 
-@router.post("/admin/upload", dependencies=[Depends(get_current_company)])
-def upload_documents(
+@router.post("/upload", dependencies=[Depends(get_current_company)])
+async def upload_documents(
     req: UploadRequest, company: Company = Depends(get_current_company)
 ):
     for file_path in req.documents:
-        batch = []
-        try:
-            text = extract_text(file_path)
-        except Exception as e:
-            raise HTTPException(
-                status_code=400, detail=f"Ошибка чтения файла '{file_path}': {e}"
-            )
-
-        for chunk in chunk_text(text):
-            emb = get_embedding(chunk)
-            batch.append(
-                {
-                    "id": f"{company.id}-{uuid4()}",
-                    "company_id": int(company.id),
-                    "content": str(chunk),
-                    "embedding": [float(x) for x in emb], # TODO: пока работает так, надо отрефакторить
-                }
-            )
+        batch = await create_batch(file_path, company, file_path)
+        # TODO: Поместить в задачу
         search_client.upload_documents(documents=batch)
-    
+
     return {"indexed": len(batch)}
 
 
 @router.post("/chat", response_model=ChatResponse)
-def chat(req: ChatRequest, company: Company = Depends(get_current_company)):
-    q_emb = get_embedding(req.question)
+async def chat(req: ChatRequest, company: Company = Depends(get_current_company)):
+    q_emb = await get_embedding(req.question)
+    vectorized_query = VectorizedQuery(
+        vector=q_emb,
+        k_nearest_neighbors=3,
+        fields="embedding",
+    )
     results = search_client.search(
         search_text="*",
-        vector={"value": q_emb, "fields": "embedding", "k": 3},
+        vector_queries=[vectorized_query],
         filter=f"company_id eq {company.id}",
     )
+
+    # TODO: Реализовать асинхронный поиск в БД
+
     context = "\n".join([doc["content"] for doc in results])
     messages = [
         {
@@ -87,104 +76,10 @@ def chat(req: ChatRequest, company: Company = Depends(get_current_company)):
         },
         {"role": "user", "content": f"Контекст:\n{context}\n\nВопрос:\n{req.question}"},
     ]
-    resp = openai.ChatCompletion.create(
-        model=settings.model_name, messages=messages, temperature=0.2
+
+    response = client.chat.completions.create(
+        model=settings.model_name,
+        messages=messages,
+        stream=False,
     )
-    return ChatResponse(answer=resp.choices[0].message.content)
-
-
-# @router.get("/company/all")
-# async def get_all_companies():
-#     # Запрос к БД на вывод всех компаний
-#     return {"companies": []}
-
-
-# @router.get("/company/{company_id}")
-# async def get_company(company_id: str):
-#     logger.info(company_id)
-#     # Запрос к БД на поиск компании
-#     return {"name", "Ycla Company"}
-
-
-# @router.post("/company")
-# async def create_new_company(data: dict) -> CompanyModel:
-#     logger.info(data)
-#     # Запрос к БД на создание компании
-#     return {"name": "name", "integration": None}
-
-
-# @router.delete("/company/{company_id}")
-# async def remove_company(company_id: str):
-#     logger.info(company_id)
-#     # Запрос к БД на удаление компании
-#     return {"is_removed", True}
-
-
-# @router.put("/company/{company_id}")
-# async def update_company(data: dict):
-#     logger.info(data)
-#     # Запрос к БД на обновление компании
-#     return {"name", "Ycla Company"}
-
-
-# @router.get("/company/{company_id}/admin/{admin_id}")
-# async def get_admin(company_id: str, admin_id: str):
-#     logger.info(company_id, admin_id)
-#     # Запрос к БД на поиск админа
-#     return {"username": "username"}
-
-
-# @router.post("/company/{company_id}/admin")
-# async def create_new_admin(company_id: str, data: dict) -> AdminModel:
-#     logger.info(company_id)
-#     logger.info(data)
-#     # Запрос к БД на создание нового админа
-#     return {
-#         "username": "user",
-#         "key": str(uuid()),
-#         "company_id": company_id,
-#     }
-
-
-# @router.put("/company/{company_id}/admin/{admin_id}")
-# async def update_admin(company_id: str, admin_id: str):
-#     logger.info(company_id)
-#     logger.info(admin_id)
-#     # Запрос к БД на обновление админа
-#     return {"username": "username", "company_id": company_id, "admin_id": admin_id}
-
-
-# @router.delete("/company/{company_id}/admin/{admin_id}")
-# async def remove_admin(company_id: str, admin_id: str):
-#     logger.info(company_id)
-#     logger.info(admin_id)
-#     # Запрос к БД на удаление админа
-#     return {"is_removed", True}
-
-
-# @router.post("/company/{company_id}/chat")
-# async def create_new_chat(company_id: str, data: dict):
-#     logger.info(company_id)
-#     logger.info(data)
-#     # Запрос к БД на создание нового чата
-#     return {"company_id": company_id, "data": data}
-
-
-# @router.get("/company/{company_id}/chat/{chat_id}")
-# async def get_chat(chat_id: str):
-#     logger.info(chat_id)
-#     # Запрос к БД на поиск чата с таким chat_id
-#     return {"messages": []}
-
-
-# @router.delete("/company/{company_id}/chat/{chat_id}")
-# async def remove_chat(chat_id: str):
-#     logger.info(chat_id)
-#     # Запрос к БД на удаление чата с указанным id
-#     return {"is_removed": True}
-
-
-# @router.post("/chat/test")
-# async def make_query(data: dict[str, str]):
-# answer = await chat.add_message(data["message"])
-# return {"message": answer}
+    return ChatResponse(answer=response.choices[0].message.content)

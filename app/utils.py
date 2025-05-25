@@ -18,14 +18,14 @@ client = AzureOpenAI(
 )
 
 
-def get_embedding(text: str) -> List[float]:
+async def get_embedding(text: str) -> List[float]:
     if not isinstance(text, str):
         raise TypeError("Input text must be a string")
     text = text.strip().strip("\n")
     if not text:
         raise ValueError("Input text is empty")
     try: 
-        response = client.embeddings.create(
+        response = await client.embeddings.create(
             input=[text], model=settings.embedding_model_name
         )
         return response.data[0].embedding
