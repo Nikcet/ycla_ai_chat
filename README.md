@@ -4,7 +4,10 @@
 Запустить тестовое окружение:
 ```bash  
 pip install uv
-``` 
+```
+```bash
+uv python install
+```
 ```bash
 uv sync
 ```
