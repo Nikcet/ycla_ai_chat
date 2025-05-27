@@ -68,7 +68,12 @@ class App_settings(BaseSettings):
     search_index: str = os.getenv("VECTOR_STORE_INDEX_NAME", "searcher")
     search_admin_key: str = os.getenv("VECTOR_STORE_ADMIN_KEY", "")
     search_query_key: str = os.getenv("VECTOR_STORE_USER_KEY", "")
-
+    
+    redis_host: str = os.getenv("REDIS_HOST")
+    redis_port: int = int(os.getenv("REDIS_PORT", "6379"))
+    
+    sqlite_url: str = os.getenv("SQLITE_URL", "")
+    
 @lru_cache
 def get_app_settings():
     """Get settings"""
