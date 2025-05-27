@@ -3,6 +3,7 @@ from azure.search.documents.models import VectorizedQuery
 from uuid import uuid4
 from sqlmodel import Session
 from openai.lib.azure import AzureOpenAI
+from celery.result import AsyncResult
 
 
 from app.schemas import (
@@ -14,11 +15,12 @@ from app.schemas import (
 )
 from app import logger
 from app.models import Company
-from app.dependencies import get_session, get_current_company, create_batch
+from app.dependencies import get_session, get_current_company
 from app.database import search_client
 from app.utils import get_embedding
 from app.config import get_app_settings
-
+from app.celery_worker import celery_tasks
+from app.tasks import upload_documents_task
 
 settings = get_app_settings()
 router = APIRouter()
@@ -40,17 +42,20 @@ async def register_company(
     return RegisterResponse(api_key=company.api_key)
 
 
-@router.post("/upload", dependencies=[Depends(get_current_company)])
+@router.post("/documents/upload", dependencies=[Depends(get_current_company)])
 async def upload_documents(
     req: UploadRequest, company: Company = Depends(get_current_company)
 ):
-    for file_path in req.documents:
-        batch = await create_batch(file_path, company, file_path)
-        # TODO: Поместить в задачу
-        search_client.upload_documents(documents=batch)
+    logger.info(f"Uploading documents for company {company.id}")
+    task = upload_documents_task.delay(documents=req.documents, company_id=company.id)
+    return {"task_id": task.task_id}
 
-    return {"indexed": len(batch)}
 
+@router.get("/documents/upload/status/{task_id}")
+async def get_upload_status(task_id: str):
+    task = AsyncResult(task_id, app=celery_tasks)
+    logger.info(f"Task status is ready: {task.ready()}")
+    return {"status": task.status, "result": task.result}
 
 @router.post("/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest, company: Company = Depends(get_current_company)):
