@@ -1,13 +1,13 @@
 import os
 from openai import AzureOpenAI
-
-# from openai.types.embeddings import Embedding
 from pathlib import Path
 from typing import List, Union
 import docx2txt
 from pypdf import PdfReader
 from app.config import get_app_settings
 from app import logger
+from uuid import uuid4
+from fastapi import HTTPException
 
 settings = get_app_settings()
 
@@ -18,14 +18,14 @@ client = AzureOpenAI(
 )
 
 
-async def get_embedding(text: str) -> List[float]:
+def get_embedding(text: str) -> List[float]:
     if not isinstance(text, str):
         raise TypeError("Input text must be a string")
     text = text.strip().strip("\n")
     if not text:
         raise ValueError("Input text is empty")
-    try: 
-        response = await client.embeddings.create(
+    try:
+        response = client.embeddings.create(
             input=[text], model=settings.embedding_model_name
         )
         return response.data[0].embedding
@@ -59,3 +59,27 @@ def extract_text(file_path: str) -> str:
         return extract_text_from_docx(file_path)
     else:
         raise ValueError(f"Неподдерживаемый тип файла: {ext}")
+
+
+def create_batch(company_id: int, file_path: str) -> List[dict]:
+    batch = []
+    try:
+        text = extract_text(file_path)
+    except Exception as e:
+        raise HTTPException(
+            status_code=400, detail=f"Ошибка чтения файла '{file_path}': {e}"
+        )
+
+    for chunk in chunk_text(text, 3072):
+        emb = get_embedding(chunk)
+        batch.append(
+            {
+                "id": f"{company_id}-{uuid4()}",
+                "company_id": int(company_id),
+                "content": str(chunk),
+                "embedding": [
+                    float(x) for x in emb
+                ],  # TODO: пока работает так, надо отрефакторить
+            }
+        )
+    return batch

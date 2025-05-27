@@ -6,7 +6,7 @@ from app import config, logger
 
 settings = config.get_app_settings()
 
-engine = create_engine("sqlite:///database.db")
+engine = create_engine(settings.sqlite_url)
 
 
 search_client = SearchClient(
@@ -14,4 +14,4 @@ search_client = SearchClient(
     index_name=settings.search_index,
     credential=AzureKeyCredential(settings.search_admin_key),
 )
-logger.info(f"Create search client: {search_client}")
+logger.info("Created search client.")
