@@ -62,18 +62,20 @@ class App_settings(BaseSettings):
     embedding_model_url: str = os.getenv("AZURE_EMBEDDING_URL", "")
     embedding_model_deployment: str = os.getenv("AZURE_EMBEDDING_DEPLOYMENT", "")
     embedding_model_api_version: str = os.getenv("AZURE_EMBEDDING_API_VERSION", "")
+    embedding_model_size: str = os.getenv("AZURE_EMBEDDING_MODEL_SIZE", "3072")
 
     search_endpoint: str = os.getenv("VECTOR_STORE_URL", "")
     search_password: str = os.getenv("VECTOR_STORE_PASSWORD", "")
     search_index: str = os.getenv("VECTOR_STORE_INDEX_NAME", "searcher")
     search_admin_key: str = os.getenv("VECTOR_STORE_ADMIN_KEY", "")
     search_query_key: str = os.getenv("VECTOR_STORE_USER_KEY", "")
-    
+
     redis_host: str = os.getenv("REDIS_HOST")
     redis_port: int = int(os.getenv("REDIS_PORT", "6379"))
-    
-    sqlite_url: str = os.getenv("SQLITE_URL", "")
-    
+
+    sqlite_url: str = os.getenv("SQLITE_URL")
+
+
 @lru_cache
 def get_app_settings():
     """Get settings"""
