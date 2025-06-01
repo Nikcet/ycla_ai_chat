@@ -26,7 +26,7 @@ def get_current_company(
     return company
 
 
-def upload_documents(documents: list[str], company_id: str) -> dict:
+def upload_documents(documents: list[str], company_id: str) -> dict[str, bool]:
     try:
         for file_path in documents:
             doc_id = uuid()
@@ -60,7 +60,7 @@ def upload_documents(documents: list[str], company_id: str) -> dict:
         return {"indexed": False}
 
 
-def delete_documents(company_id: str) -> dict:
+def delete_documents(company_id: str) -> dict[str, bool]:
     try:
         filter_query = f"company_id eq '{company_id}'"
         chunks = search_client.search(filter=filter_query, search_text="*")
@@ -80,7 +80,7 @@ def delete_documents(company_id: str) -> dict:
         return {"deleted": False}
 
 
-def delete_document_by_id(document_id: str) -> dict:
+def delete_document_by_id(document_id: str) -> dict[str, bool]:
     try:
         filter_query = f"document_id eq '{document_id}'"
         chunks = search_client.search(filter=filter_query, search_text="*")
@@ -99,7 +99,7 @@ def delete_document_by_id(document_id: str) -> dict:
                 session.commit()
             else:
                 raise
-            
+
         return {"deleted": True}
     except Exception as e:
         logger.error(f"Error while deleting file '{document_id}': {e}")

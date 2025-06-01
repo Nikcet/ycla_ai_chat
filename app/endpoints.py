@@ -19,7 +19,6 @@ from app.models import Company, FileMetadata
 from app.dependencies import (
     get_company_session,
     get_current_company,
-    delete_documents,
     delete_document_by_id,
 )
 from app.database import search_client
@@ -27,7 +26,7 @@ from app.utils import get_embedding
 from app.config import get_app_settings
 from app.celery_worker import celery_tasks
 
-from app.tasks import upload_documents_task
+from app.tasks import upload_documents_task, delete_documents_task
 
 settings = get_app_settings()
 router = APIRouter()
@@ -73,9 +72,8 @@ async def upload(
 async def delete_all_documents(
     company: Company = Depends(get_current_company),
 ):
-    res = delete_documents(company_id=company.id)
-
-    return {"status": res}
+    task = delete_documents_task.delay(company_id=company.id)
+    return {"task_id": task.task_id}
 
 
 @router.post(
@@ -93,6 +91,13 @@ async def delete_document(
 
 @router.get("/documents/upload/status/{task_id}")
 async def get_upload_status(task_id: str):
+    task = AsyncResult(task_id, app=celery_tasks)
+    logger.info(f"Task status is ready: {task.ready()}")
+    return {"status": task.status, "result": task.result}
+
+
+@router.get("/documents/delete/status/{task_id}")
+async def get_deleting_status(task_id: str):
     task = AsyncResult(task_id, app=celery_tasks)
     logger.info(f"Task status is ready: {task.ready()}")
     return {"status": task.status, "result": task.result}
