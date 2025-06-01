@@ -1,3 +1,4 @@
+import base64
 import os
 from openai import AzureOpenAI
 from pathlib import Path
@@ -7,6 +8,7 @@ from pypdf import PdfReader
 from app.config import get_app_settings
 from app import logger
 from uuid import uuid4
+from shortuuid import uuid
 from fastapi import HTTPException
 
 settings = get_app_settings()
@@ -61,25 +63,33 @@ def extract_text(file_path: str) -> str:
         raise ValueError(f"Неподдерживаемый тип файла: {ext}")
 
 
-def create_batch(company_id: int, file_path: str) -> List[dict]:
+def create_batch(company_id: str, file_path: str, document_id: str) -> List[dict]:
     batch = []
     try:
         text = extract_text(file_path)
     except Exception as e:
         raise HTTPException(
-            status_code=400, detail=f"Ошибка чтения файла '{file_path}': {e}"
+            status_code=400, detail=f"Error while read file '{file_path}': {e}"
         )
 
-    for chunk in chunk_text(text, 3072):
+    
+    for chunk in chunk_text(text, int(settings.embedding_model_size)):
         emb = get_embedding(chunk)
         batch.append(
             {
                 "id": f"{company_id}-{uuid4()}",
-                "company_id": int(company_id),
+                "company_id": company_id,
+                "document_id": document_id,
                 "content": str(chunk),
                 "embedding": [
-                    float(x) for x in emb
-                ],  # TODO: пока работает так, надо отрефакторить
+                    x for x in emb
+                ],  
             }
         )
     return batch
+
+
+def encode_document_key(key: str) -> str:
+    """Encodes document keys to a URL-safe Base64 format to comply with Azure Search constraints."""
+    return base64.urlsafe_b64encode(key.encode()).decode("utf-8")
+
