@@ -1,9 +1,16 @@
 from uuid import uuid4
-from typing import Optional
+from shortuuid import uuid
 from sqlmodel import SQLModel, Field
 
 
 class Company(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: str = Field(default_factory=uuid, primary_key=True)
     name: str = Field(index=True)
-    api_key: str = Field(index=True, unique=True, default=str(uuid4()))
+    api_key: str = Field(default_factory=lambda: str(uuid4()), index=True, unique=True)
+
+
+class FileMetadata(SQLModel, table=True):
+    id: str = Field(default_factory=uuid, primary_key=True)
+    file_name: str
+    company_id: str = Field(foreign_key="company.id")
+    document_id: str
