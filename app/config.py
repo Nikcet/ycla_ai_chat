@@ -74,6 +74,8 @@ class App_settings(BaseSettings):
     redis_port: int = int(os.getenv("REDIS_PORT", "6379"))
 
     sqlite_url: str = os.getenv("SQLITE_URL")
+    
+    nearest_neighbors: int = 5
 
 
 @lru_cache

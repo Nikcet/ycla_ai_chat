@@ -2,7 +2,7 @@ from fastapi import Header, HTTPException, Depends
 from sqlmodel import Session, select, delete
 
 from app import logger
-from app.models import Company, FileMetadata
+from app.models import Company, FileMetadata, AdminPrompt
 from app.config import get_app_settings
 from app.database import engine, search_client
 from app.utils import create_batch, encode_document_key
@@ -116,3 +116,30 @@ def create_company(company_name: str) -> Company | dict[str, bool]:
     except Exception as e:
         logger.error(f"Error while creating company '{company_name}': {e}")
         return {"created": False}
+
+
+def save_admin_prompt(
+    admin_prompt: str, company: Company, session: Session
+) -> dict[str, bool]:
+    old_prompt = session.exec(
+        select(AdminPrompt).where(AdminPrompt.company_id == company.id)
+    ).first()
+    if old_prompt:
+        session.delete(old_prompt)
+        session.commit()
+
+    new_prompt = AdminPrompt(prompt=admin_prompt.prompt, company_id=company.id)
+    session.add(new_prompt)
+    session.commit()
+
+
+def get_admin_prompt(company: Company, session: Session) -> AdminPrompt:
+    admin_prompt = ""
+
+    prompt_record = session.exec(
+        select(AdminPrompt).where(AdminPrompt.company_id == company.id)
+    ).first()
+    if prompt_record:
+        admin_prompt = prompt_record.prompt
+    
+    return admin_prompt
