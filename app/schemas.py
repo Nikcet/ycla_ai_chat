@@ -25,9 +25,15 @@ class ChatResponse(BaseModel):
 class TaskResponse(BaseModel):
     task_id: str
 
+
 class UploadResponse(BaseModel):
     status: dict[str, bool]
-    
+
+
 class TaskStatusResponse(BaseModel):
     status: str
     result: Any
+
+
+class AdminPromptRequest(BaseModel):
+    prompt: str

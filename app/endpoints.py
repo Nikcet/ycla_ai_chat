@@ -1,7 +1,6 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from azure.search.documents.models import VectorizedQuery
 
-from shortuuid import uuid
 from sqlmodel import Session
 from openai.lib.azure import AzureOpenAI
 from celery.result import AsyncResult
@@ -15,6 +14,7 @@ from app.schemas import (
     TaskResponse,
     UploadResponse,
     TaskStatusResponse,
+    AdminPromptRequest,
 )
 from app import logger
 from app.models import Company
@@ -23,6 +23,8 @@ from app.dependencies import (
     get_current_company,
     delete_document_by_id,
     create_company,
+    save_admin_prompt,
+    get_admin_prompt,
 )
 from app.database import search_client
 from app.utils import get_embedding
@@ -155,7 +157,11 @@ async def get_deleting_status(task_id: str):
 
 
 @router.post("/chat", response_model=ChatResponse)
-async def chat(req: ChatRequest, company: Company = Depends(get_current_company)):
+async def chat(
+    req: ChatRequest,
+    company: Company = Depends(get_current_company),
+    session: Session = Depends(get_company_session),
+):
     """
     Handle a chat request and return a response.
 
@@ -169,7 +175,7 @@ async def chat(req: ChatRequest, company: Company = Depends(get_current_company)
     q_emb = get_embedding(req.question)
     vectorized_query = VectorizedQuery(
         vector=q_emb,
-        k_nearest_neighbors=3,
+        k_nearest_neighbors=settings.nearest_neighbors,
         fields="embedding",
     )
     results = search_client.search(
@@ -181,10 +187,13 @@ async def chat(req: ChatRequest, company: Company = Depends(get_current_company)
     # TODO: Реализовать асинхронный поиск в БД
 
     context = "\n".join([doc["content"] for doc in results])
+
+    admin_prompt = get_admin_prompt(company, session)
+
     messages = [
         {
             "role": "system",
-            "content": "Используй только предоставленный контекст для ответа.",
+            "content": f"Используй только предоставленный контекст для ответа. {admin_prompt}",
         },
         {"role": "user", "content": f"Контекст:\n{context}\n\nВопрос:\n{req.question}"},
     ]
@@ -195,3 +204,34 @@ async def chat(req: ChatRequest, company: Company = Depends(get_current_company)
         stream=False,
     )
     return ChatResponse(answer=response.choices[0].message.content)
+
+
+@router.post(
+    "/prompt", dependencies=[Depends(get_current_company), Depends(get_company_session)]
+)
+async def save_prompt(
+    req: AdminPromptRequest,
+    company: Company = Depends(get_current_company),
+    session: Session = Depends(get_company_session),
+):
+    """
+    Save an admin prompt for a company.
+
+    Args:
+        req (AdminPromptRequest): The request object containing the prompt data.
+        company (Company): The company object for which the prompt is being saved.
+        session (Session): The database session.
+
+    Returns:
+        dict: A dictionary with a success status.
+
+    Raises:
+        HTTPException: If there is an error while saving the admin prompt.
+    """
+    try:
+        logger.info(f"Saving admin prompt for company {company.id}")
+        save_admin_prompt(req, company, session)
+        return {"status": "success"}
+    except Exception as e:
+        logger.error(f"Error saving admin prompt: {e}")
+        raise HTTPException(status_code=500, detail="Failed to save admin prompt")
