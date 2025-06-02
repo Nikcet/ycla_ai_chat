@@ -1,5 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Header
 from azure.search.documents.models import VectorizedQuery
+from redis import asyncio as aioredis
+import json
+from uuid import uuid4
 
 from sqlmodel import Session
 from openai.lib.azure import AzureOpenAI
@@ -25,6 +28,7 @@ from app.dependencies import (
     create_company,
     save_admin_prompt,
     get_admin_prompt,
+    get_redis_connection,
 )
 from app.database import search_client
 from app.utils import get_embedding
@@ -44,7 +48,9 @@ client = AzureOpenAI(
 
 
 @router.post("/register", response_model=RegisterResponse)
-async def register_company(req: RegisterRequest, session: Session = Depends(get_company_session)):
+async def register_company(
+    req: RegisterRequest, session: Session = Depends(get_company_session)
+):
     """
     Register a new company and return a response with an API key.
 
@@ -77,7 +83,7 @@ async def upload(
         TaskResponse: The response object containing the task ID.
     """
     task = upload_documents_task.delay(documents=req.documents, company_id=company.id)
-    return TaskResponse(task.task_id)
+    return TaskResponse(task_id=task.task_id)
 
 
 @router.post(
@@ -97,7 +103,7 @@ async def delete_all_documents(
         TaskResponse: The response object containing the task ID.
     """
     task = delete_documents_task.delay(company_id=company.id)
-    return TaskResponse(task.task_id)
+    return TaskResponse(task_id=task.task_id)
 
 
 @router.post(
@@ -121,7 +127,7 @@ async def delete_document(
     logger.info(f"Deleting document {document_id} for company {company.id}")
     res = delete_document_by_id(document_id=document_id)
     logger.info(f"Document deleted successfully: {res}")
-    return UploadResponse(res)
+    return UploadResponse(status=res)
 
 
 @router.get("/documents/upload/status/{task_id}")
@@ -137,7 +143,7 @@ async def get_upload_status(task_id: str):
     """
     task = AsyncResult(task_id, app=celery_tasks)
     logger.info(f"Task status is ready: {task.ready()}")
-    return TaskStatusResponse(task.status, task.result)
+    return TaskStatusResponse(status=task.status, result=task.result)
 
 
 @router.get("/documents/delete/status/{task_id}")
@@ -153,7 +159,7 @@ async def get_deleting_status(task_id: str):
     """
     task = AsyncResult(task_id, app=celery_tasks)
     logger.info(f"Task status is ready: {task.ready()}")
-    return TaskStatusResponse(task.status, task.result)
+    return TaskStatusResponse(status=task.status, result=task.result)
 
 
 @router.post("/chat", response_model=ChatResponse)
@@ -161,49 +167,62 @@ async def chat(
     req: ChatRequest,
     company: Company = Depends(get_current_company),
     session: Session = Depends(get_company_session),
+    session_id: str = Header(default=str(uuid4())),
+    redis: aioredis.Redis = Depends(get_redis_connection),
 ):
-    """
-    Handle a chat request and return a response.
 
-    Args:
-        req (ChatRequest): The request object containing the question.
-        company (Company): The company object for which the chat is being handled.
+    history = await redis.lrange(f"history:{company.id}:{session_id}", 0, -1)
+    messages = [json.loads(msg) for msg in history] if history else []
 
-    Returns:
-        ChatResponse: The response object containing the answer.
-    """
     q_emb = get_embedding(req.question)
     vectorized_query = VectorizedQuery(
         vector=q_emb,
         k_nearest_neighbors=settings.nearest_neighbors,
         fields="embedding",
     )
+    # TODO: Реализовать асинхронный поиск в БД
     results = search_client.search(
         search_text="*",
         vector_queries=[vectorized_query],
         filter=f"company_id eq '{company.id}'",
     )
 
-    # TODO: Реализовать асинхронный поиск в БД
 
     context = "\n".join([doc["content"] for doc in results])
 
     admin_prompt = get_admin_prompt(company, session)
 
-    messages = [
+    system_prompt = [
         {
             "role": "system",
             "content": f"Используй только предоставленный контекст для ответа. {admin_prompt}",
-        },
-        {"role": "user", "content": f"Контекст:\n{context}\n\nВопрос:\n{req.question}"},
+        }
     ]
+    
+    final_messages = system_prompt + messages.append(
+        {
+            "role": "user",
+            "content": f"Контекст:\n{context}\n\nВопрос:\n{req.question}",
+        }
+    )
 
     response = client.chat.completions.create(
         model=settings.model_name,
-        messages=messages,
+        messages=final_messages,
         stream=False,
     )
-    return ChatResponse(answer=response.choices[0].message.content)
+
+    answer = response.choices[0].message.content
+
+    await redis.rpush(
+        f"history:{company.id}:{session_id}",
+        json.dumps({"role": "user", "content": req.question}),
+        json.dumps({"role": "assistant", "content": answer}),
+    )
+
+    await redis.ltrim(f"history:{company.id}:{session_id}", -10, -1)
+
+    return ChatResponse(answer=answer)
 
 
 @router.post(
