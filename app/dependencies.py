@@ -9,6 +9,8 @@ from app.utils import create_batch, encode_document_key
 from shortuuid import uuid
 from uuid import uuid4
 
+from redis import asyncio as aioredis
+
 
 app_settings = get_app_settings()
 
@@ -17,6 +19,12 @@ def get_company_session():
     with Session(engine) as session:
         yield session
 
+async def get_redis_connection():
+    redis = aioredis.from_url(f"redis://{app_settings.redis_host}:{app_settings.redis_port}", decode_responses=True)
+    try:
+        yield redis
+    finally:
+        await redis.close()
 
 def get_current_company(
     x_api_key: str = Header(...), session: Session = Depends(get_company_session)
@@ -142,3 +150,7 @@ def get_admin_prompt(company: Company, session: Session) -> AdminPrompt:
         admin_prompt = prompt_record.prompt
     
     return admin_prompt
+
+
+
+        
