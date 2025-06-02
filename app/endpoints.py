@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Header
 from azure.search.documents.models import VectorizedQuery
+from azure.search.documents.aio import SearchClient
 from redis import asyncio as aioredis
 import json
 from uuid import uuid4
@@ -30,7 +31,7 @@ from app.dependencies import (
     get_admin_prompt,
     get_redis_connection,
 )
-from app.database import search_client
+from app.database import get_async_search_client
 from app.utils import get_embedding
 from app.config import get_app_settings
 from app.celery_worker import celery_tasks
@@ -169,6 +170,7 @@ async def chat(
     session: Session = Depends(get_company_session),
     session_id: str = Header(default=str(uuid4())),
     redis: aioredis.Redis = Depends(get_redis_connection),
+    search_client: SearchClient = Depends(get_async_search_client),
 ):
     """
     Handle a chat request and return a response.
@@ -193,31 +195,41 @@ async def chat(
         k_nearest_neighbors=settings.nearest_neighbors,
         fields="embedding",
     )
-    # TODO: Реализовать асинхронный поиск в БД
-    results = search_client.search(
+
+    context = ""
+    logger.info(f"Searching for documents for company {company.id}")
+    results = await search_client.search(
         search_text="*",
         vector_queries=[vectorized_query],
         filter=f"company_id eq '{company.id}'",
     )
+    logger.info(f"Found documents for company {company.id}")
+    context = "\n".join([doc["content"] async for doc in results])
 
-    context = "\n".join([doc["content"] for doc in results])
 
     admin_prompt = get_admin_prompt(company, session)
-
+    logger.info(f"Admin prompt: {admin_prompt}")
+    
     system_prompt = [
         {
             "role": "system",
             "content": f"Используй только предоставленный контекст для ответа. {admin_prompt}",
         }
     ]
-
-    final_messages = system_prompt + messages.append(
-        {
+    messages.append({
             "role": "user",
             "content": f"Контекст:\n{context}\n\nВопрос:\n{req.question}",
-        }
-    )
+        })
+    try:
+        final_messages = system_prompt + messages
+    except TypeError as e:
+        logger.error(f"Error appending messages: {e}: {messages}")
+        final_messages = system_prompt + [{"role": "user", "content": f"Контекст:\n{context}\n\nВопрос:\n{req.question}"}]
+    except Exception as e:
+        logger.error(f"Unexpected error appending messages: {e}")
+        final_messages = system_prompt + [{"role": "user", "content": f"Контекст:\n{context}\n\nВопрос:\n{req.question}"}]
 
+    logger.info("Final messages is completed.")
     response = client.chat.completions.create(
         model=settings.model_name,
         messages=final_messages,
@@ -225,7 +237,8 @@ async def chat(
     )
 
     answer = response.choices[0].message.content
-
+    logger.info(f"Answer is: {answer} for company {company.id}")
+    
     await redis.rpush(
         f"history:{company.id}:{session_id}",
         json.dumps({"role": "user", "content": req.question}),
@@ -233,6 +246,7 @@ async def chat(
     )
 
     await redis.ltrim(f"history:{company.id}:{session_id}", -10, -1)
+    logger.info(f"Chat history is saved successfully for company {company.id}")
 
     return ChatResponse(answer=answer)
 
