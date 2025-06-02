@@ -49,13 +49,16 @@ def get_settings():
 
 
 class App_settings(BaseSettings):
-    api_type: str = "azure"
     endpoint: str = os.getenv("AZURE_ENDPOINT_URL", "")
     api_key: str = os.getenv("AZURE_OPENAI_API_KEY", "")
     api_version: str = os.getenv("AZURE_OPENAI_API_VERSION", "2025-01-01-preview")
     model_name: str = os.getenv("AZURE_MODEL_NAME", "o3-mini")
     deployment_name: str = os.getenv("AZURE_DEPLOYMENT_NAME", "o3-mini")
 
+    deepseek_url: str = os.getenv("DEEPSEEK_API_URL", "")
+    deepseek_api_key: str = os.getenv("DEEPSEEK_API_KEY", "")
+    deepseek_model: str = os.getenv("DEEPSEEK_API_MODEL", "")
+    
     embedding_model_name: str = os.getenv(
         "AZURE_EMBEDDING_MODEL_NAME", "text-embedding-3-large"
     )
