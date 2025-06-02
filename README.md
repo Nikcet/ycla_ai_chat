@@ -29,3 +29,4 @@ celery -A app.celery_worker.celery_tasks worker --loglevel=info --pool=eventlet
 ```
 For unix remove "--pool" option.
 
+When you run asgi, you may find docs for that endpoint: "http://localhost:8000/docs"
