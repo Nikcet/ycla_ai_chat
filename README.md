@@ -3,19 +3,23 @@
 First you should setup the .env variables.
 
 ## Run testing environment:
+That project uses a uv PM, so you should install uv first:
 ```bash  
 pip install uv
 ```
+Install fixed python version:
 ```bash
 uv python install
 ```
+Install all dependencies:
 ```bash
 uv sync
 ```
+Run FastAPI ASGI for development:
 ```bash
 uv run uvicorn main:app --reload
 ```
-### Run redis 
+### Run redis for development 
 ```bash
 redis-server
 ```
@@ -23,5 +27,5 @@ redis-server
 ```bash
 celery -A app.celery_worker.celery_tasks worker --loglevel=info --pool=eventlet
 ```
-
+For unix remove "--pool" option.
 
