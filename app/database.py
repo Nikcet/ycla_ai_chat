@@ -1,6 +1,7 @@
 from sqlmodel import create_engine
 from azure.core.credentials import AzureKeyCredential
-from azure.search.documents import SearchClient
+# from azure.search.documents import SearchClient
+from azure.search.documents.aio import SearchClient
 from azure.search.documents.indexes import SearchIndexClient
 from azure.search.documents.indexes.models import (
     CorsOptions,
@@ -43,6 +44,30 @@ def get_search_client(index_name: str = settings.search_index):
    logger.info("Created search client.")
    return client
 
+
+def get_async_search_client(index_name: str = settings.search_index):
+   """
+   Get a search client.
+
+   Args:
+       index_name (str): The name of the search index.
+
+   Returns:
+       SearchClient: The search client object.
+
+   Raises:
+       Exception: If the search client cannot be created.
+   """
+   client = SearchClient(
+       endpoint=settings.search_endpoint,
+       index_name=index_name,
+       credential=AzureKeyCredential(settings.search_admin_key),
+   )
+   if client is None:
+       raise Exception("Failed to create search client.")
+
+   logger.info("Created search client.")
+   return client
 
 
 def create_search_client(company_id: int):
@@ -99,5 +124,6 @@ def create_search_client(company_id: int):
 
 
 
-search_client = get_search_client()
+# search_client = get_search_client()
+search_client = get_async_search_client()
 # admin_client = create_search_client()

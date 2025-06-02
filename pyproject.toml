@@ -4,6 +4,7 @@ version = "0.3.2"
 description = "Chatting api"
 requires-python = ">=3.11"
 dependencies = [
+    "aiohttp>=3.12.6",
     "aioredis>=2.0.1",
     "alembic>=1.15.2",
     "asyncpg>=0.30.0",
