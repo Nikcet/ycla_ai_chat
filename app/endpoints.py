@@ -170,6 +170,19 @@ async def chat(
     session_id: str = Header(default=str(uuid4())),
     redis: aioredis.Redis = Depends(get_redis_connection),
 ):
+    """
+    Handle a chat request and return a response.
+
+    Args:
+        req (ChatRequest): The request object containing the question.
+        company (Company): The company object for which the chat is being handled.
+        session (Session): The database session.
+        session_id (str): The ID of the chat session.
+        redis (aioredis.Redis): The Redis connection.
+
+    Returns:
+        ChatResponse: The response object containing the answer.
+    """
 
     history = await redis.lrange(f"history:{company.id}:{session_id}", 0, -1)
     messages = [json.loads(msg) for msg in history] if history else []
@@ -187,7 +200,6 @@ async def chat(
         filter=f"company_id eq '{company.id}'",
     )
 
-
     context = "\n".join([doc["content"] for doc in results])
 
     admin_prompt = get_admin_prompt(company, session)
@@ -198,7 +210,7 @@ async def chat(
             "content": f"Используй только предоставленный контекст для ответа. {admin_prompt}",
         }
     ]
-    
+
     final_messages = system_prompt + messages.append(
         {
             "role": "user",
