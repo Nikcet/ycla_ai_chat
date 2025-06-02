@@ -1,14 +1,25 @@
+import json
+from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, Header
 from azure.search.documents.models import VectorizedQuery
 from azure.search.documents.aio import SearchClient
 from redis import asyncio as aioredis
-import json
-from uuid import uuid4
-
 from sqlmodel import Session
-from openai.lib.azure import AzureOpenAI
 from celery.result import AsyncResult
+from openai import (
+    APIError,
+    RateLimitError,
+    InternalServerError,
+    LengthFinishReasonError,
+    ContentFilterFinishReasonError,
+)
 
+from app import logger, settings
+from app.models import Company
+from app.utils import get_embedding, get_redis_history, set_redis_history
+from app.celery_worker import celery_tasks
+from app.tasks import upload_documents_task, delete_documents_task
+from app.clients import azure_client, deepseek_client
 from app.schemas import (
     RegisterResponse,
     RegisterRequest,
@@ -20,32 +31,21 @@ from app.schemas import (
     TaskStatusResponse,
     AdminPromptRequest,
 )
-from app import logger
-from app.models import Company
-from app.dependencies import (
-    get_company_session,
-    get_current_company,
+from app.database import (
     delete_document_by_id,
     create_company,
     save_admin_prompt,
     get_admin_prompt,
+    get_async_search_client,
+)
+from app.dependencies import (
+    get_company_session,
+    get_current_company,
     get_redis_connection,
 )
-from app.database import get_async_search_client
-from app.utils import get_embedding
-from app.config import get_app_settings
-from app.celery_worker import celery_tasks
 
-from app.tasks import upload_documents_task, delete_documents_task
 
-settings = get_app_settings()
 router = APIRouter()
-
-client = AzureOpenAI(
-    api_key=settings.api_key,
-    api_version=settings.api_version,
-    azure_endpoint=settings.endpoint,
-)
 
 
 @router.post("/register", response_model=RegisterResponse)
@@ -181,72 +181,129 @@ async def chat(
         session (Session): The database session.
         session_id (str): The ID of the chat session.
         redis (aioredis.Redis): The Redis connection.
+        search_client (SearchClient): The search client.
 
     Returns:
         ChatResponse: The response object containing the answer.
+
+    Raises:
+        HTTPException: If there is an error while handling the chat request.
     """
 
-    history = await redis.lrange(f"history:{company.id}:{session_id}", 0, -1)
-    messages = [json.loads(msg) for msg in history] if history else []
+    try:
+        messages = await get_redis_history(redis, f"history:{company.id}:{session_id}")
+    except Exception as e:
+        logger.error(f"Error getting redis history: {e}")
+        messages = []
+    try:
+        q_emb = await get_embedding(req.question)
 
-    q_emb = get_embedding(req.question)
-    vectorized_query = VectorizedQuery(
-        vector=q_emb,
-        k_nearest_neighbors=settings.nearest_neighbors,
-        fields="embedding",
-    )
+        vectorized_query = VectorizedQuery(
+            vector=q_emb,
+            k_nearest_neighbors=settings.nearest_neighbors,
+            fields="embedding",
+        )
 
-    context = ""
-    logger.info(f"Searching for documents for company {company.id}")
-    results = await search_client.search(
-        search_text="*",
-        vector_queries=[vectorized_query],
-        filter=f"company_id eq '{company.id}'",
-    )
-    logger.info(f"Found documents for company {company.id}")
-    context = "\n".join([doc["content"] async for doc in results])
+        logger.info(f"Searching for documents for company {company.id}")
+        results = await search_client.search(
+            search_text="*",
+            vector_queries=[vectorized_query],
+            filter=f"company_id eq '{company.id}'",
+        )
+        logger.info(f"Found documents for company {company.id}")
+        context = "\n".join([doc["content"] async for doc in results])
+    except Exception as e:
+        logger.error(f"Error searching for documents: {e}")
+        context = ""
 
+    logger.info("Context is completed.")
 
     admin_prompt = get_admin_prompt(company, session)
     logger.info(f"Admin prompt: {admin_prompt}")
-    
+
     system_prompt = [
         {
             "role": "system",
             "content": f"Используй только предоставленный контекст для ответа. {admin_prompt}",
         }
     ]
-    messages.append({
+    messages.append(
+        {
             "role": "user",
             "content": f"Контекст:\n{context}\n\nВопрос:\n{req.question}",
-        })
+        }
+    )
     try:
         final_messages = system_prompt + messages
     except TypeError as e:
         logger.error(f"Error appending messages: {e}: {messages}")
-        final_messages = system_prompt + [{"role": "user", "content": f"Контекст:\n{context}\n\nВопрос:\n{req.question}"}]
+        final_messages = system_prompt + [
+            {
+                "role": "user",
+                "content": f"Контекст:\n{context}\n\nВопрос:\n{req.question}",
+            }
+        ]
     except Exception as e:
         logger.error(f"Unexpected error appending messages: {e}")
-        final_messages = system_prompt + [{"role": "user", "content": f"Контекст:\n{context}\n\nВопрос:\n{req.question}"}]
+        final_messages = system_prompt + [
+            {
+                "role": "user",
+                "content": f"Контекст:\n{context}\n\nВопрос:\n{req.question}",
+            }
+        ]
 
     logger.info("Final messages is completed.")
-    response = client.chat.completions.create(
-        model=settings.model_name,
-        messages=final_messages,
-        stream=False,
-    )
+
+    try:
+        client = azure_client
+
+        response = await client.chat.completions.create(
+            model=settings.model_name,
+            messages=final_messages,
+            stream=False,
+        )
+    except (
+        APIError,
+        RateLimitError,
+        InternalServerError,
+        LengthFinishReasonError,
+        ContentFilterFinishReasonError,
+    ) as e:
+        logger.warning(
+            f"Azure OpenAI is not available. Trying to use Deepseek API. {e}"
+        )
+        client = deepseek_client
+        try:
+            response = await client.chat.completions.create(
+                model=settings.model_name,
+                messages=final_messages,
+            )
+        except Exception as e:
+            logger.error(f"Error using Deepseek API: {e}")
+            raise HTTPException(
+                status_code=503,
+                detail="Failed to retrieve response from Azure OpenAI or Deepseek API. Try later.",
+            )
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}")
+        raise HTTPException(
+            status_code=503,
+            detail="Unexpected error. Failed to retrieve response from Azure OpenAI or Deepseek API",
+        )
 
     answer = response.choices[0].message.content
-    logger.info(f"Answer is: {answer} for company {company.id}")
-    
-    await redis.rpush(
-        f"history:{company.id}:{session_id}",
-        json.dumps({"role": "user", "content": req.question}),
-        json.dumps({"role": "assistant", "content": answer}),
-    )
+    logger.info(f"Answer is ready for company {company.id}")
 
-    await redis.ltrim(f"history:{company.id}:{session_id}", -10, -1)
-    logger.info(f"Chat history is saved successfully for company {company.id}")
+    try:
+        await set_redis_history(
+            redis,
+            f"history:{company.id}:{session_id}",
+            json.dumps({"role": "user", "content": req.question}),
+            json.dumps({"role": "assistant", "content": answer}),
+        )
+        logger.info(f"Chat history is saved successfully for company {company.id}")
+    except Exception as e:
+        logger.error(f"Error saving chat history: {e} for company {company.id}")
 
     return ChatResponse(answer=answer)
 
