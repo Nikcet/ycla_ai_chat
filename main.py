@@ -24,10 +24,5 @@ async def lifespan(app: FastAPI):
     logger.warning("Server is shutting down.")
 
 
-@app.get("/")
-async def root():
-    return {"message": "Ok"}
-
-
 app.router.lifespan_context = lifespan
 app.include_router(router)

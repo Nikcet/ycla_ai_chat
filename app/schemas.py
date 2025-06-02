@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import List
+from typing import Any
 
 
 class RegisterRequest(BaseModel):
@@ -11,7 +11,7 @@ class RegisterResponse(BaseModel):
 
 
 class UploadRequest(BaseModel):
-    documents: List[str]
+    documents: list[str]
 
 
 class ChatRequest(BaseModel):
@@ -20,3 +20,14 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     answer: str
+
+
+class TaskResponse(BaseModel):
+    task_id: str
+
+class UploadResponse(BaseModel):
+    status: dict[str, bool]
+    
+class TaskStatusResponse(BaseModel):
+    status: str
+    result: Any

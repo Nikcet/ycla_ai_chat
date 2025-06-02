@@ -7,6 +7,7 @@ from app.config import get_app_settings
 from app.database import engine, search_client
 from app.utils import create_batch, encode_document_key
 from shortuuid import uuid
+from uuid import uuid4
 
 
 app_settings = get_app_settings()
@@ -35,7 +36,6 @@ def upload_documents(documents: list[str], company_id: str) -> dict[str, bool]:
             )
 
             for doc in batch:
-                logger.info(f"Processing document: {doc}")
                 doc["document_id"] = doc_id
                 doc["id"] = encode_document_key(doc["id"])
 
@@ -104,3 +104,15 @@ def delete_document_by_id(document_id: str) -> dict[str, bool]:
     except Exception as e:
         logger.error(f"Error while deleting file '{document_id}': {e}")
         return {"deleted": False}
+
+
+def create_company(company_name: str) -> Company | dict[str, bool]:
+    try:
+        with Session(engine) as session:
+            company = Company(name=company_name, api_key=str(uuid4()))
+            session.add(company)
+            session.commit()
+            return company
+    except Exception as e:
+        logger.error(f"Error while creating company '{company_name}': {e}")
+        return {"created": False}
