@@ -74,7 +74,6 @@ async def upload(
     Returns:
         TaskResponse: The response object containing the task ID.
     """
-    logger.info(f"Uploading documents for company {company.id}")
     task = upload_documents_task.delay(documents=req.documents, company_id=company.id)
     return TaskResponse(task.task_id)
 
@@ -117,8 +116,9 @@ async def delete_document(
     Returns:
         UploadResponse: The response object containing the result of the deletion.
     """
+    logger.info(f"Deleting document {document_id} for company {company.id}")
     res = delete_document_by_id(document_id=document_id)
-
+    logger.info(f"Document deleted successfully: {res}")
     return UploadResponse(res)
 
 
