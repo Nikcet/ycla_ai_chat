@@ -2,7 +2,7 @@
 
 First you should setup the .env variables.
 
-Run testing environment:
+## Run testing environment:
 ```bash  
 pip install uv
 ```
@@ -15,11 +15,11 @@ uv sync
 ```bash
 uv run uvicorn main:app --reload
 ```
-Run redis
+### Run redis 
 ```bash
 redis-server
 ```
-Run celery on windows
+### Run celery on windows
 ```bash
 celery -A app.celery_worker.celery_tasks worker --loglevel=info --pool=eventlet
 ```
