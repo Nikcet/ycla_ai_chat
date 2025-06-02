@@ -1,7 +1,8 @@
 # ycla_ai_chat
 
+First you should setup the .env variables.
 
-Запустить тестовое окружение:
+Run testing environment:
 ```bash  
 pip install uv
 ```
@@ -14,11 +15,11 @@ uv sync
 ```bash
 uv run uvicorn main:app --reload
 ```
-Запустить redis
+Run redis
 ```bash
 redis-server
 ```
-Запустить celery
+Run celery on windows
 ```bash
 celery -A app.celery_worker.celery_tasks worker --loglevel=info --pool=eventlet
 ```
