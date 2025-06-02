@@ -2,10 +2,9 @@ from fastapi import APIRouter, Depends
 from azure.search.documents.models import VectorizedQuery
 
 from shortuuid import uuid
-from sqlmodel import Session, delete
+from sqlmodel import Session
 from openai.lib.azure import AzureOpenAI
 from celery.result import AsyncResult
-
 
 from app.schemas import (
     RegisterResponse,
@@ -13,13 +12,17 @@ from app.schemas import (
     UploadRequest,
     ChatResponse,
     ChatRequest,
+    TaskResponse,
+    UploadResponse,
+    TaskStatusResponse,
 )
 from app import logger
-from app.models import Company, FileMetadata
+from app.models import Company
 from app.dependencies import (
     get_company_session,
     get_current_company,
     delete_document_by_id,
+    create_company,
 )
 from app.database import search_client
 from app.utils import get_embedding
@@ -39,72 +42,130 @@ client = AzureOpenAI(
 
 
 @router.post("/register", response_model=RegisterResponse)
-async def register_company(
-    req: RegisterRequest, session: Session = Depends(get_company_session)
-):
-    company = Company(name=req.name, id=uuid(req.name))
-    session.add(company)
-    session.commit()
+async def register_company(req: RegisterRequest):
+    """
+    Register a new company and return a response with an API key.
+
+    Args:
+        req (RegisterRequest): The request object containing the company name.
+
+    Returns:
+        RegisterResponse: The response object containing the API key.
+    """
+    company = create_company(req.name)
     return RegisterResponse(api_key=company.api_key)
 
 
 @router.post(
     "/documents/upload",
-    dependencies=[Depends(get_current_company), Depends(get_company_session)],
+    dependencies=[Depends(get_current_company)],
 )
 async def upload(
     req: UploadRequest,
     company: Company = Depends(get_current_company),
 ):
+    """
+    Upload documents for a company.
+
+    Args:
+        req (UploadRequest): The request object containing the documents to upload.
+        company (Company): The company object for which the documents are being uploaded.
+
+    Returns:
+        TaskResponse: The response object containing the task ID.
+    """
     logger.info(f"Uploading documents for company {company.id}")
     task = upload_documents_task.delay(documents=req.documents, company_id=company.id)
-    return {"task_id": task.task_id}
-
-    # res = upload_documents(req.documents, company_id=company.id, session=session)
-
-    # return {"status": res}
+    return TaskResponse(task.task_id)
 
 
 @router.post(
     "/documents/delete/all",
-    dependencies=[Depends(get_current_company), Depends(get_company_session)],
+    dependencies=[Depends(get_current_company)],
 )
 async def delete_all_documents(
     company: Company = Depends(get_current_company),
 ):
+    """
+    Delete all documents for a company.
+
+    Args:
+        company (Company): The company object for which the documents are being deleted.
+
+    Returns:
+        TaskResponse: The response object containing the task ID.
+    """
     task = delete_documents_task.delay(company_id=company.id)
-    return {"task_id": task.task_id}
+    return TaskResponse(task.task_id)
 
 
 @router.post(
     "/documents/delete/{document_id}",
-    dependencies=[Depends(get_current_company), Depends(get_company_session)],
+    dependencies=[Depends(get_current_company)],
 )
 async def delete_document(
     document_id: str,
     company: Company = Depends(get_current_company),
 ):
+    """
+    Delete a document by ID for a company.
+
+    Args:
+        document_id (str): The ID of the document to delete.
+        company (Company): The company object for which the document is being deleted.
+
+    Returns:
+        UploadResponse: The response object containing the result of the deletion.
+    """
     res = delete_document_by_id(document_id=document_id)
 
-    return {"status": res}
+    return UploadResponse(res)
 
 
 @router.get("/documents/upload/status/{task_id}")
 async def get_upload_status(task_id: str):
+    """
+    Get the status of an upload task.
+
+    Args:
+        task_id (str): The ID of the task to check.
+
+    Returns:
+        TaskStatusResponse: The response object containing the status and result of the task.
+    """
     task = AsyncResult(task_id, app=celery_tasks)
     logger.info(f"Task status is ready: {task.ready()}")
-    return {"status": task.status, "result": task.result}
+    return TaskStatusResponse(task.status, task.result)
 
 
 @router.get("/documents/delete/status/{task_id}")
 async def get_deleting_status(task_id: str):
+    """
+    Get the status of a deleting task.
+
+    Args:
+        task_id (str): The ID of the task to check.
+
+    Returns:
+        TaskStatusResponse: The response object containing the status and result of the task.
+    """
     task = AsyncResult(task_id, app=celery_tasks)
     logger.info(f"Task status is ready: {task.ready()}")
-    return {"status": task.status, "result": task.result}
+    return TaskStatusResponse(task.status, task.result)
 
 
 @router.post("/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest, company: Company = Depends(get_current_company)):
+    """
+    Handle a chat request and return a response.
+
+    Args:
+        req (ChatRequest): The request object containing the question.
+        company (Company): The company object for which the chat is being handled.
+
+    Returns:
+        ChatResponse: The response object containing the answer.
+    """
     q_emb = get_embedding(req.question)
     vectorized_query = VectorizedQuery(
         vector=q_emb,
