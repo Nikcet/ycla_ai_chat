@@ -49,64 +49,64 @@ When you run asgi, you may find docs for that endpoint: "http://localhost:8000/d
 ### 2. Upload Documents  
 - **POST**  `/documents/upload`
 
-Uploads documents asynchronously. 
-
-**Request Model** : `UploadRequest`
-
-**Response Model** : `TaskResponse`
-
-**Body** :
-```json
-{ "documents": ["file_path1", "file_path2"] }
-```
+  Uploads documents asynchronously. 
+  
+  **Request Model** : `UploadRequest`
+  
+  **Response Model** : `TaskResponse`
+  
+  **Body** :
+  ```json
+  { "documents": ["file_path1", "file_path2"] }
+  ```
 
 ### 3. Delete Documents   
 - **POST**  `/documents/delete/all`
 
-Deletes all documents for a company (async).
-
-**Response Model** : `TaskResponse`
-
-
-- **POST**  `/documents/delete/{document_id}`
-
-Deletes a specific document by ID.
-
-**Response Model** : `UploadResponse`
+  Deletes all documents for a company (async).
+  
+  **Response Model** : `TaskResponse`
+  
+  
+  - **POST**  `/documents/delete/{document_id}`
+  
+  Deletes a specific document by ID.
+  
+  **Response Model** : `UploadResponse`
 
 
 ### 4. Task Status  
 - **GET**  `/documents/upload/status/{task_id}`
 - **GET**  `/documents/delete/status/{task_id}`
 
-Check status/results of async tasks.
-
-**Response Model** : `TaskStatusResponse`
+  Check status/results of async tasks.
+  
+  **Response Model** : `TaskStatusResponse`
 
 ### 5. Chat Interface 
 - **POST**  `/chat`
 
-Process chat queries with context from vector search and Redis history.
-
-**Request Model** : `ChatRequest`
-
-**Response Model** : `ChatResponse`
-
-**Features** :
-- Uses Azure OpenAI (fallback to DeepSeek if unavailable).
-- Stores history in Redis for session context.
+  Process chat queries with context from vector search and Redis history.
+  
+  **Request Model** : `ChatRequest`
+  
+  **Response Model** : `ChatResponse`
+  
+  **Features** :
+  - Uses Azure OpenAI (fallback to DeepSeek if unavailable).
+  - Stores history in Redis for session context.
 
 ### 6. Admin Prompt   
 - **POST**  `/prompt`
 
-Save a custom system prompt for a company.
-
-**Request Model** : `AdminPromptRequest`
-
-**Body** :
-```json
-{ "prompt": "Custom instructions..." }
-```
+  Save a custom system prompt for a company.
+  
+  **Request Model** : `AdminPromptRequest`
+  
+  **Body** :
+  ```json
+  { "prompt": "Custom instructions..." }
+  ```
 
 ## Dependencies
 - Azure AI Search : Vector/document search.
