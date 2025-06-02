@@ -44,7 +44,7 @@ client = AzureOpenAI(
 
 
 @router.post("/register", response_model=RegisterResponse)
-async def register_company(req: RegisterRequest):
+async def register_company(req: RegisterRequest, session: Session = Depends(get_company_session)):
     """
     Register a new company and return a response with an API key.
 
@@ -54,7 +54,7 @@ async def register_company(req: RegisterRequest):
     Returns:
         RegisterResponse: The response object containing the API key.
     """
-    company = create_company(req.name)
+    company = create_company(req.name, session)
     return RegisterResponse(api_key=company.api_key)
 
 

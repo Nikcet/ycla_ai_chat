@@ -37,6 +37,6 @@ class FileMetadata(SQLModel, table=True):
 
 
 class AdminPrompt(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: Optional[str] = Field(default_factory=lambda: str(uuid4()), primary_key=True)
     prompt: str
     company_id: str = Field(foreign_key="company.id")

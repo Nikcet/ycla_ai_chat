@@ -106,20 +106,19 @@ def delete_document_by_id(document_id: str) -> dict[str, bool]:
         return {"deleted": False}
 
 
-def create_company(company_name: str) -> Company | dict[str, bool]:
+def create_company(company_name: str, session: Session) -> Company | dict[str, bool]:
     try:
-        with Session(engine) as session:
-            company = Company(name=company_name, api_key=str(uuid4()))
-            session.add(company)
-            session.commit()
-            return company
+        company = Company(name=company_name, api_key=str(uuid4()))
+        session.add(company)
+        session.commit()
+        return company
     except Exception as e:
         logger.error(f"Error while creating company '{company_name}': {e}")
         return {"created": False}
 
 
 def save_admin_prompt(
-    admin_prompt: str, company: Company, session: Session
+    admin_prompt: AdminPrompt, company: Company, session: Session
 ) -> dict[str, bool]:
     old_prompt = session.exec(
         select(AdminPrompt).where(AdminPrompt.company_id == company.id)
