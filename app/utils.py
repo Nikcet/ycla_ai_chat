@@ -1,26 +1,24 @@
 import base64
 import os
-from openai import AzureOpenAI
+from openai.lib.azure import AsyncAzureOpenAI
 from pathlib import Path
 from typing import List, Union
 import docx2txt
 from pypdf import PdfReader
-from app.config import get_app_settings
-from app import logger
+from app import logger, settings
 from uuid import uuid4
-from shortuuid import uuid
 from fastapi import HTTPException
+import json
+from redis import asyncio as aioredis
 
-settings = get_app_settings()
-
-client = AzureOpenAI(
+client = AsyncAzureOpenAI(
     api_key=settings.api_key,
     api_version=settings.embedding_model_api_version,
     azure_endpoint=settings.embedding_model_url,
 )
 
 
-def get_embedding(text: str) -> List[float]:
+async def get_embedding(text: str) -> List[float]:
     """
     Generate an embedding for the given text.
 
@@ -41,7 +39,7 @@ def get_embedding(text: str) -> List[float]:
     if not text:
         raise ValueError("Input text is empty")
     try:
-        response = client.embeddings.create(
+        response = await client.embeddings.create(
             input=[text], model=settings.embedding_model_name
         )
         return response.data[0].embedding
@@ -166,3 +164,13 @@ def encode_document_key(key: str) -> str:
         str: The encoded document key.
     """
     return base64.urlsafe_b64encode(key.encode()).decode("utf-8")
+
+
+async def get_redis_history(redis_client: aioredis.Redis, key: str) -> list:
+    history = await redis_client.lrange(key, 0, -1)
+    return [json.loads(msg) for msg in history]
+
+
+async def set_redis_history(redis_client: aioredis.Redis, key: str, *values: str) -> None:
+    await redis_client.rpush(key, *values)
+    await redis_client.ltrim(key, -10, -1)

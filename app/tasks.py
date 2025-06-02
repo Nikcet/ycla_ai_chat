@@ -1,4 +1,4 @@
-from app.dependencies import upload_documents, delete_documents
+from app.database import upload_documents, delete_documents
 from app.celery_worker import celery_tasks
 from app import logger
 
