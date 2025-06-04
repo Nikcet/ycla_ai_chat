@@ -65,7 +65,7 @@ class App_settings(BaseSettings):
     embedding_model_url: str = os.getenv("AZURE_EMBEDDING_URL", "")
     embedding_model_deployment: str = os.getenv("AZURE_EMBEDDING_DEPLOYMENT", "")
     embedding_model_api_version: str = os.getenv("AZURE_EMBEDDING_API_VERSION", "")
-    embedding_model_size: str = os.getenv("AZURE_EMBEDDING_MODEL_SIZE", "3072")
+    embedding_model_size: str = os.getenv("AZURE_EMBEDDING_MODEL_SIZE", "3072") # The size of embedding model 'text-embedding-3-large' that is by default
 
     search_endpoint: str = os.getenv("VECTOR_STORE_URL", "")
     search_password: str = os.getenv("VECTOR_STORE_PASSWORD", "")
