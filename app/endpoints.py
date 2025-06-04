@@ -2,7 +2,7 @@ import json
 from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, Header
 from azure.search.documents.models import VectorizedQuery
-from azure.search.documents.aio import SearchClient
+from azure.search.documents import SearchClient
 from redis import asyncio as aioredis
 from sqlmodel import Session
 from celery.result import AsyncResult
@@ -18,7 +18,7 @@ from app import logger, settings
 from app.models import Company
 from app.utils import get_embedding, get_redis_history, set_redis_history
 from app.celery_worker import celery_tasks
-from app.tasks import upload_documents_task, delete_documents_task
+from app.tasks import upload_documents_task, delete_documents_task, delete_company_task
 from app.clients import azure_client, deepseek_client
 from app.schemas import (
     RegisterResponse,
@@ -36,7 +36,7 @@ from app.database import (
     create_company,
     save_admin_prompt,
     get_admin_prompt,
-    get_async_search_client,
+    get_search_client,
 )
 from app.dependencies import (
     get_company_session,
@@ -48,7 +48,7 @@ from app.dependencies import (
 router = APIRouter()
 
 
-@router.post("/register", response_model=RegisterResponse)
+@router.post("/company/register", response_model=RegisterResponse)
 async def register_company(
     req: RegisterRequest, session: Session = Depends(get_company_session)
 ):
@@ -64,6 +64,13 @@ async def register_company(
     company = create_company(req.name, session)
     return RegisterResponse(api_key=company.api_key)
 
+@router.delete("/company/delete", response_model=TaskResponse)
+async def delete_company(
+    company: Company = Depends(get_current_company),
+):
+
+    task = delete_company_task.delay(company_id=company.id)
+    return TaskResponse(task_id=task.id)
 
 @router.post(
     "/documents/upload",
@@ -87,7 +94,7 @@ async def upload(
     return TaskResponse(task_id=task.task_id)
 
 
-@router.post(
+@router.delete(
     "/documents/delete/all",
     dependencies=[Depends(get_current_company)],
 )
@@ -107,7 +114,7 @@ async def delete_all_documents(
     return TaskResponse(task_id=task.task_id)
 
 
-@router.post(
+@router.delete(
     "/documents/delete/{document_id}",
     dependencies=[Depends(get_current_company)],
 )
@@ -162,6 +169,20 @@ async def get_deleting_status(task_id: str):
     logger.info(f"Task status is ready: {task.ready()}")
     return TaskStatusResponse(status=task.status, result=task.result)
 
+@router.get("/company/delete/status/{task_id}")
+async def get_company_deleting_status(task_id: str):
+    """
+    Get the status of a company deleting task.
+
+    Args:
+        task_id (str): The ID of the task to check.
+
+    Returns:
+        TaskStatusResponse: The response object containing the status and result of the task.
+    """
+    task = AsyncResult(task_id, app=celery_tasks)
+    logger.info(f"Task status is ready: {task.ready()}")
+    return TaskStatusResponse(status=task.status, result=task.result)
 
 @router.post("/chat", response_model=ChatResponse)
 async def chat(
@@ -170,7 +191,7 @@ async def chat(
     session: Session = Depends(get_company_session),
     session_id: str = Header(default=str(uuid4())),
     redis: aioredis.Redis = Depends(get_redis_connection),
-    search_client: SearchClient = Depends(get_async_search_client),
+    search_client: SearchClient = Depends(get_search_client),
 ):
     """
     Handle a chat request and return a response.
