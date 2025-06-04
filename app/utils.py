@@ -1,5 +1,5 @@
 import base64
-from openai.lib.azure import AsyncAzureOpenAI
+from openai.lib.azure import AzureOpenAI
 from openai import APIError, RateLimitError, InternalServerError
 from pathlib import Path
 from typing import List, Union
@@ -11,14 +11,14 @@ from fastapi import HTTPException
 import json
 from redis import asyncio as aioredis
 
-client = AsyncAzureOpenAI(
+client = AzureOpenAI(
     api_key=settings.api_key,
     api_version=settings.embedding_model_api_version,
     azure_endpoint=settings.embedding_model_url,
 )
 
 
-async def get_embedding(text: str) -> List[float]:
+def get_embedding(text: str) -> List[float]:
     """
     Generate an embedding for the given text with robust error handling.
     
@@ -38,7 +38,7 @@ async def get_embedding(text: str) -> List[float]:
     
     try:
         logger.info(f"Generating embedding for text of length {len(text)}")
-        response = await client.embeddings.create(
+        response = client.embeddings.create(
             input=[text], 
             model=settings.embedding_model_name
         )
@@ -153,7 +153,7 @@ def extract_text(file_path: str) -> str:
         raise ValueError(f"Text extraction failed: {str(e)}") from e
 
 
-async def create_batch(company_id: str, file_path: str, document_id: str) -> List[dict]:
+def create_batch(company_id: str, file_path: str, document_id: str) -> List[dict]:
     """
     Create document batch with comprehensive error handling
     """
@@ -177,7 +177,7 @@ async def create_batch(company_id: str, file_path: str, document_id: str) -> Lis
         batch = []
         for i, chunk in enumerate(chunks):
             try:
-                emb = await get_embedding(chunk)
+                emb = get_embedding(chunk)
                 doc_id = f"{company_id}-{uuid4()}"
                 
                 batch.append({
@@ -191,7 +191,6 @@ async def create_batch(company_id: str, file_path: str, document_id: str) -> Lis
                 
             except Exception as e:
                 logger.error(f"Failed to process chunk {i+1}: {str(e)}", exc_info=True)
-                # Continue processing other chunks despite individual failures
                 
         logger.info(f"Successfully created batch with {len(batch)} documents")
         return batch

@@ -8,41 +8,20 @@ from app import logger
 
 
 class Database_settings(BaseSettings):
-    """
-
-    BaseSettings, from Pydantic, validates the data so that when we create an instance of Settings,
-     environment and testing will have types of str and bool, respectively.
-
-    Parameters:
-    pg_user (str):
-    pg_pass (str):
-    pg_database: (str):
-    pg_test_database: (str):
-    asyncpg_url: AnyUrl:
-    asyncpg_test_url: AnyUrl:
-
-    Returns:
-    instance of Settings
-
-    """
-
-    pg_user: str = os.getenv("SQL_DATABASE_USER", "")
-    pg_pass: str = os.getenv("SQL_DATABASE_PASSWORD", "")
-    pg_host: str = os.getenv("SQL_DATABASE_HOST", "")
-    pg_port: str = os.getenv("SQL_DATABASE_PORT", "")
-    pg_database: str = os.getenv("SQL_DATABASE_NAME", "")
-    pg_driver: str = "+" + os.getenv("SQL_DATABASE_DRIVER", "")
-    asyncpg_url: str = (
-        f"postgresql{pg_driver}://{pg_user}:{pg_pass}@{pg_host}:{pg_port}/{pg_database}"
-    )
-
-    # jwt_secret_key: str = os.getenv("SECRET_KEY", "")
-    # jwt_algorithm: str = os.getenv("ALGORITHM", "")
-    # jwt_access_toke_expire_minutes: int = os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 1)
+    pg_user: str = os.getenv("SQL_DB_USER", "")
+    pg_pass: str = os.getenv("SQL_DB_PASSWORD", "")
+    pg_host: str = os.getenv("SQL_DB_HOST", "")
+    pg_port: str = os.getenv("SQL_DB_PORT", "")
+    pg_database: str = os.getenv("SQL_DB_NAME", "")
+    pg_driver: str = os.getenv("SQL_DB_DRIVER", "psycopg2")
+    
+    @property
+    def pg_url(self):
+        return f"postgresql+{self.pg_driver}://{self.pg_user}:{self.pg_pass}@{self.pg_host}:{self.pg_port}/{self.pg_database}"
 
 
 @lru_cache
-def get_settings():
+def get_db_settings():
     """Get settings"""
     logger.info("Loading config settings from the environment...")
     return Database_settings()
@@ -58,14 +37,16 @@ class App_settings(BaseSettings):
     deepseek_url: str = os.getenv("DEEPSEEK_API_URL", "")
     deepseek_api_key: str = os.getenv("DEEPSEEK_API_KEY", "")
     deepseek_model: str = os.getenv("DEEPSEEK_API_MODEL", "")
-    
+
     embedding_model_name: str = os.getenv(
         "AZURE_EMBEDDING_MODEL_NAME", "text-embedding-3-large"
     )
     embedding_model_url: str = os.getenv("AZURE_EMBEDDING_URL", "")
     embedding_model_deployment: str = os.getenv("AZURE_EMBEDDING_DEPLOYMENT", "")
     embedding_model_api_version: str = os.getenv("AZURE_EMBEDDING_API_VERSION", "")
-    embedding_model_size: str = os.getenv("AZURE_EMBEDDING_MODEL_SIZE", "3072") # The size of embedding model 'text-embedding-3-large' that is by default
+    embedding_model_size: str = os.getenv(
+        "AZURE_EMBEDDING_MODEL_SIZE", "3072"
+    )  # The size of embedding model 'text-embedding-3-large' that is by default
 
     search_endpoint: str = os.getenv("VECTOR_STORE_URL", "")
     search_password: str = os.getenv("VECTOR_STORE_PASSWORD", "")
@@ -77,7 +58,8 @@ class App_settings(BaseSettings):
     redis_port: int = int(os.getenv("REDIS_PORT", "6379"))
 
     sqlite_url: str = os.getenv("SQLITE_URL")
-    
+    pg_url: str = Database_settings().pg_url
+
     nearest_neighbors: int = 5
 
 

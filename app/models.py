@@ -1,5 +1,4 @@
 from uuid import uuid4
-from shortuuid import uuid
 from sqlmodel import SQLModel, Field
 from typing import Optional
 
@@ -14,7 +13,7 @@ class Company(SQLModel, table=True):
         api_key (str): The API key for the company.
     """
 
-    id: str = Field(default_factory=uuid, primary_key=True)
+    id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)
     name: str = Field(index=True)
     api_key: str = Field(default_factory=lambda: str(uuid4()), index=True, unique=True)
 
@@ -30,7 +29,7 @@ class FileMetadata(SQLModel, table=True):
         document_id (str): The ID of the document associated with the file.
     """
 
-    id: str = Field(default_factory=uuid, primary_key=True)
+    id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)
     file_name: str
     company_id: str = Field(foreign_key="company.id")
     document_id: str

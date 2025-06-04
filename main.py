@@ -18,8 +18,8 @@ app.add_middleware(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.success("Server is starting up.")
     SQLModel.metadata.create_all(engine)
+    logger.success("Server is starting up.")
     yield
     logger.warning("Server is shutting down.")
 
