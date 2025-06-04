@@ -19,7 +19,7 @@ from app.models import Company, FileMetadata, AdminPrompt
 from app.utils import create_batch, encode_document_key
 
 
-engine = create_engine(settings.sqlite_url)
+engine = create_engine(settings.pg_url, echo=True)
 
 
 def get_search_client(index_name: str = settings.search_index):
