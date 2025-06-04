@@ -67,8 +67,7 @@ When you run asgi, you may find docs for that endpoint: "http://localhost:8000/d
   
   **Response Model** : `TaskResponse`
   
-  
-  - **POST**  `/documents/delete/{document_id}`
+- **POST**  `/documents/delete/{document_id}`
   
   Deletes a specific document by ID.
   
