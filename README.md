@@ -15,6 +15,11 @@ Install all dependencies:
 ```bash
 uv sync
 ```
+Make init migrations:
+```bash
+alembic upgrade head
+```
+
 Run FastAPI ASGI for development:
 ```bash
 uv run uvicorn main:app --reload
