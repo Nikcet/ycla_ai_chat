@@ -33,7 +33,7 @@ When you run asgi, you may find docs for that endpoint: "http://localhost:8000/d
 ## Endpoints
 
 ### 1. **Register Company**  
-- **POST** `/register`
+- **POST** `/company/register`
 
   Registers a new company and returns an API key.
   
@@ -46,7 +46,14 @@ When you run asgi, you may find docs for that endpoint: "http://localhost:8000/d
   { "name": "Company Name" }
   ```
 
-### 2. Upload Documents  
+### 2. **Deleting Company**  
+- **DELETE** `/company/delete`
+
+  Delete a company with all data of company asynchronously.
+      
+  **Response Model**: `TaskResponse`
+  
+### 3. Upload Documents  
 - **POST**  `/documents/upload`
 
   Uploads documents asynchronously. 
@@ -60,8 +67,8 @@ When you run asgi, you may find docs for that endpoint: "http://localhost:8000/d
   { "documents": ["file_path1", "file_path2"] }
   ```
 
-### 3. Delete Documents   
-- **POST**  `/documents/delete/all`
+### 4. Delete Documents   
+- **DELETE**  `/documents/delete/all`
 
   Deletes all documents for a company (async).
   
@@ -74,15 +81,16 @@ When you run asgi, you may find docs for that endpoint: "http://localhost:8000/d
   **Response Model** : `UploadResponse`
 
 
-### 4. Task Status  
+### 5. Task Status  
 - **GET**  `/documents/upload/status/{task_id}`
 - **GET**  `/documents/delete/status/{task_id}`
+- **GET**  `/company/delete/status/{task_id}`
 
   Check status/results of async tasks.
   
   **Response Model** : `TaskStatusResponse`
 
-### 5. Chat Interface 
+### 6. Chat Interface 
 - **POST**  `/chat`
 
   Process chat queries with context from vector search and Redis history.
@@ -95,7 +103,7 @@ When you run asgi, you may find docs for that endpoint: "http://localhost:8000/d
   - Uses Azure OpenAI (fallback to DeepSeek if unavailable).
   - Stores history in Redis for session context.
 
-### 6. Admin Prompt   
+### 7. Admin Prompt   
 - **POST**  `/prompt`
 
   Save a custom system prompt for a company.
