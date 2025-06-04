@@ -66,11 +66,20 @@ async def register_company(
 
 @router.delete("/company/delete", response_model=TaskResponse)
 async def delete_company(
-    company: Company = Depends(get_current_company),
+   company: Company = Depends(get_current_company),
 ):
+   """
+   Delete a company.
 
-    task = delete_company_task.delay(company_id=company.id)
-    return TaskResponse(task_id=task.id)
+   Args:
+       company (Company): The company object to be deleted.
+
+   Returns:
+       TaskResponse: The response object containing the task ID.
+   """
+   task = delete_company_task.delay(company_id=company.id)
+   return TaskResponse(task_id=task.id)
+
 
 @router.post(
     "/documents/upload",
