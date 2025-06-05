@@ -76,3 +76,4 @@ jobs:
         with:
           app-name: 'ycla-ai-api'
           slot-name: 'Production'
+          enable-oryx-build: false
