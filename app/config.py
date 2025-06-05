@@ -56,6 +56,7 @@ class App_settings(BaseSettings):
 
     redis_host: str = os.getenv("REDIS_HOST")
     redis_port: int = int(os.getenv("REDIS_PORT", "6379"))
+    redis_password: str = os.getenv("REDIS_PASSWORD", "")
 
     sqlite_url: str = os.getenv("SQLITE_URL")
     pg_url: str = Database_settings().pg_url
