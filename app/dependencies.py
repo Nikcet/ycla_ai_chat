@@ -14,7 +14,9 @@ def get_company_session():
 
 async def get_redis_connection():
     redis = aioredis.from_url(
-        f"redis://{settings.redis_host}:{settings.redis_port}",
+        host=settings.redis_host,
+        port=settings.redis_port,
+        password=settings.redis_password,
         decode_responses=True,
     )
     try:
@@ -30,5 +32,3 @@ def get_current_company(
     if not company:
         raise HTTPException(status_code=401, detail="Invalid API Key")
     return company
-
-
