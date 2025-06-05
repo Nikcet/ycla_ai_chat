@@ -25,13 +25,11 @@ jobs:
           python-version: '3.11'
 
       - name: Install uv
-        run: |
-          curl -LsSf https://astral.sh/uv/install.sh | sh
-          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+        run: pip install uv
 
       - name: Install dependencies with uv
         run: uv sync
-
+      
       # Optional: Add step to run tests here (PyTest, etc.)
 
       - name: Zip artifact for deployment
@@ -69,11 +67,7 @@ jobs:
           client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_2C0480C1D9744E038BBA303CB932520E }}
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_3094E08A4F1A468CA3F70997C262BB9E }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_89199B032BF04AE2B5AD5715C6A684B0 }}
-
-      - name: Set DO_BUILD false to disable Oryx
-        run: |
-          echo "SCM_DO_BUILD_DURING_DEPLOYMENT=false" >> $GITHUB_ENV
-      
+    
       - name: 'Deploy to Azure Web App'
         uses: azure/webapps-deploy@v3
         id: deploy-to-webapp
