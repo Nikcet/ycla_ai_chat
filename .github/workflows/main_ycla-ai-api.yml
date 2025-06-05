@@ -74,4 +74,3 @@ jobs:
         with:
           app-name: 'ycla-ai-api'
           slot-name: 'Production'
-          package: .
