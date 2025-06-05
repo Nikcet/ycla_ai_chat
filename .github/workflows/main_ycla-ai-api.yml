@@ -24,13 +24,12 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Create and start virtual environment
+      - name: Install uv package manager
         run: |
-          python -m venv venv
-          source venv/bin/activate
+          pip install uv
       
-      - name: Install dependencies
-        run: pip install -r requirements.txt
+      - name: Install dependencies with uv
+        run: uv sync
         
       # Optional: Add step to run tests here (PyTest, Django test suites, etc.)
 
