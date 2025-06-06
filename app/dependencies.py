@@ -2,9 +2,9 @@ from fastapi import Header, HTTPException, Depends
 from sqlmodel import Session, select
 from redis import asyncio as aioredis
 
-from app import settings
 from app.models import Company
 from app.database import engine
+from app.clients import redis
 
 
 def get_company_session():
@@ -13,15 +13,7 @@ def get_company_session():
 
 
 async def get_redis_connection():
-    redis = aioredis.from_url(
-        host=settings.redis_host,
-        port=settings.redis_port,
-        decode_responses=True,
-    )
-    try:
-        yield redis
-    finally:
-        await redis.close()
+    return redis
 
 
 def get_current_company(
