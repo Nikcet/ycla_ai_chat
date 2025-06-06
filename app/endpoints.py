@@ -77,7 +77,7 @@ async def delete_company(
    Delete a company.
 
    Args:
-       company (Company): The company object to be deleted.
+       x-apy-key (Header): Company API key from header.
 
    Returns:
        TaskResponse: The response object containing the task ID.
@@ -99,7 +99,7 @@ async def upload(
 
     Args:
         req (UploadRequest): The request object containing the documents to upload.
-        company (Company): The company object for which the documents are being uploaded.
+        x-apy-key (Header): Company API key from header.
 
     Returns:
         TaskResponse: The response object containing the task ID.
@@ -119,7 +119,7 @@ async def delete_all_documents(
     Delete all documents for a company.
 
     Args:
-        company (Company): The company object for which the documents are being deleted.
+        x-apy-key (Header): Company API key from header.
 
     Returns:
         TaskResponse: The response object containing the task ID.
@@ -141,7 +141,7 @@ async def delete_document(
 
     Args:
         document_id (str): The ID of the document to delete.
-        company (Company): The company object for which the document is being deleted.
+        x-apy-key (Header): Company API key from header.
 
     Returns:
         UploadResponse: The response object containing the result of the deletion.
@@ -215,21 +215,13 @@ async def get_company_deleting_status(task_id: str):
 async def chat(
     req: ChatRequest,
     company: Company = Depends(get_current_company),
-    session: Session = Depends(get_company_session),
-    session_id: str = Header(default=str(uuid4())),
-    redis: aioredis.Redis = Depends(get_redis_connection),
-    search_client: SearchClient = Depends(get_search_client),
 ):
     """
     Handle a chat request and return a response.
 
     Args:
         req (ChatRequest): The request object containing the question.
-        company (Company): The company object for which the chat is being handled.
-        session (Session): The database session.
-        session_id (str): The ID of the chat session.
-        redis (aioredis.Redis): The Redis connection.
-        search_client (SearchClient): The search client.
+        x-apy-key (Header): Company API key from header.
 
     Returns:
         ChatResponse: The response object containing the answer.
@@ -237,6 +229,12 @@ async def chat(
     Raises:
         HTTPException: If there is an error while handling the chat request.
     """
+    session = get_company_session()
+    redis = get_redis_connection()
+    search_client = get_search_client()
+    
+    
+    session_id: str = str(uuid4())
 
     try:
         messages = await get_redis_history(redis, f"history:{company.id}:{session_id}")
@@ -369,8 +367,6 @@ async def save_prompt(
 
     Args:
         req (AdminPromptRequest): The request object containing the prompt data.
-        company (Company): The company object for which the prompt is being saved.
-        session (Session): The database session.
 
     Returns:
         dict: A dictionary with a success status.
@@ -380,8 +376,12 @@ async def save_prompt(
     """
     try:
         logger.info(f"Saving admin prompt for company {company.id}")
-        save_admin_prompt(req, company, session)
-        return {"status": "success"}
+        try:
+            save_admin_prompt(req, company, session)
+            return {"saved": True}
+        except Exception as e:
+            logger.error(f"Error saving admin prompt: {e}")
+            raise HTTPException(status_code=500, detail="Failed to save admin prompt") 
     except Exception as e:
         logger.error(f"Error saving admin prompt: {e}")
-        raise HTTPException(status_code=500, detail="Failed to save admin prompt")
+        return {"saved": False}
