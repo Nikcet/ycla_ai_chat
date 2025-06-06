@@ -27,7 +27,8 @@ def get_search_client(index_name: str = settings.search_index):
     Get a search client.
 
     Args:
-        index_name (str): The name of the search index.
+        index_name (str): The name of the search index. Optional. Default is the value of the `search_index` setting.
+        If you need to create a new index with other name, use this field.
 
     Returns:
         SearchClient: The search client object.
@@ -132,6 +133,7 @@ def upload_documents(documents: list[str], company_id: str) -> dict[str, bool]:
         logger.error(f"Error while work with file '{file_path}': {e}")
         return {"indexed": False}
 
+
 def get_documents(company_id: str) -> list[FileMetadata] | None:
     with Session(engine) as session:
         result = session.exec(
@@ -142,6 +144,7 @@ def get_documents(company_id: str) -> list[FileMetadata] | None:
             return None
 
         return result
+
 
 def delete_documents(company_id: str) -> dict[str, bool]:
     try:
@@ -200,9 +203,7 @@ def create_company(company_name: str, session: Session) -> Company | dict[str, b
         return {"created": False}
 
 
-def save_admin_prompt(
-    admin_prompt: AdminPrompt, company: Company, session: Session
-) -> dict[str, bool]:
+def save_admin_prompt(admin_prompt: AdminPrompt, company: Company, session: Session):
     old_prompt = session.exec(
         select(AdminPrompt).where(AdminPrompt.company_id == company.id)
     ).first()
