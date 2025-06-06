@@ -23,11 +23,11 @@ if deepseek_client:
 else:
     logger.error("DeepSeek client initialization failed")
 
+logger.info(settings.redis_port)
 redis = aioredis.from_url(
-    host=settings.redis_host,
-    port=settings.redis_port,
-    decode_responses=True,
+    url=f"redis://{settings.redis_host}:{settings.redis_port}/0", decode_responses=True
 )
+
 if redis:
     logger.info("redis client initialized successfully")
 else:

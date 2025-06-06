@@ -55,7 +55,7 @@ class App_settings(BaseSettings):
     search_query_key: str = os.getenv("VECTOR_STORE_USER_KEY", "")
 
     redis_host: str = os.getenv("REDIS_HOST", "localhost")
-    redis_port: int = int(os.getenv("REDIS_PORT", "6379"))
+    redis_port: str = os.getenv("REDIS_PORT", "6379")
     redis_password: str = os.getenv("REDIS_PASSWORD", "")
 
     sqlite_url: str = os.getenv("SQLITE_URL", "")

@@ -1,7 +1,7 @@
 from fastapi import Header, HTTPException, Depends
 from sqlmodel import Session, select
-from redis import asyncio as aioredis
 
+from app import logger
 from app.models import Company
 from app.database import engine
 from app.clients import redis
@@ -13,7 +13,11 @@ def get_company_session():
 
 
 async def get_redis_connection():
-    return redis
+    try:
+        return redis
+    except Exception as e:
+        logger.error(f"Error connecting to Redis: {e}")
+        raise HTTPException(status_code=500, detail="Redis connection error")
 
 
 def get_current_company(
