@@ -47,6 +47,10 @@ from app.dependencies import (
 
 router = APIRouter()
 
+@router.get('/')
+async def root():
+    return {"status": True}
+
 
 @router.post("/company/register", response_model=RegisterResponse)
 async def register_company(

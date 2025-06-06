@@ -16,7 +16,6 @@ async def get_redis_connection():
     redis = aioredis.from_url(
         host=settings.redis_host,
         port=settings.redis_port,
-        password=settings.redis_password,
         decode_responses=True,
     )
     try:

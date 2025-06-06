@@ -1,18 +1,18 @@
 import os
-
+from dotenv import load_dotenv
 from functools import lru_cache
 
 from pydantic_settings import BaseSettings
 
 from app import logger
-
+load_dotenv()
 
 class Database_settings(BaseSettings):
-    pg_user: str = os.getenv("SQL_DB_USER", "")
-    pg_pass: str = os.getenv("SQL_DB_PASSWORD", "")
-    pg_host: str = os.getenv("SQL_DB_HOST", "")
-    pg_port: str = os.getenv("SQL_DB_PORT", "")
-    pg_database: str = os.getenv("SQL_DB_NAME", "")
+    pg_user: str = os.getenv("SQL_DB_USER")
+    pg_pass: str = os.getenv("SQL_DB_PASSWORD")
+    pg_host: str = os.getenv("SQL_DB_HOST")
+    pg_port: str = os.getenv("SQL_DB_PORT", "5432")
+    pg_database: str = os.getenv("SQL_DB_NAME")
     pg_driver: str = os.getenv("SQL_DB_DRIVER", "psycopg2")
     
     @property
@@ -54,13 +54,13 @@ class App_settings(BaseSettings):
     search_admin_key: str = os.getenv("VECTOR_STORE_ADMIN_KEY", "")
     search_query_key: str = os.getenv("VECTOR_STORE_USER_KEY", "")
 
-    redis_host: str = os.getenv("REDIS_HOST")
+    redis_host: str = os.getenv("REDIS_HOST", "localhost")
     redis_port: int = int(os.getenv("REDIS_PORT", "6379"))
     redis_password: str = os.getenv("REDIS_PASSWORD", "")
 
-    sqlite_url: str = os.getenv("SQLITE_URL")
+    sqlite_url: str = os.getenv("SQLITE_URL", "")
     pg_url: str = Database_settings().pg_url
-
+    
     nearest_neighbors: int = 5
 
 
