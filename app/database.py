@@ -132,6 +132,16 @@ def upload_documents(documents: list[str], company_id: str) -> dict[str, bool]:
         logger.error(f"Error while work with file '{file_path}': {e}")
         return {"indexed": False}
 
+def get_documents(company_id: str) -> list[FileMetadata] | None:
+    with Session(engine) as session:
+        result = session.exec(
+            select(FileMetadata).where(FileMetadata.company_id == company_id)
+        ).all()
+        logger.info(f"Result: {result}")
+        if not result:
+            return None
+
+        return result
 
 def delete_documents(company_id: str) -> dict[str, bool]:
     try:

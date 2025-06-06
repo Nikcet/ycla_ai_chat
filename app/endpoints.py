@@ -15,7 +15,7 @@ from openai import (
 )
 
 from app import logger, settings
-from app.models import Company
+from app.models import Company, FileMetadata
 from app.utils import get_embedding, get_redis_history, set_redis_history
 from app.celery_worker import celery_tasks
 from app.tasks import upload_documents_task, delete_documents_task, delete_company_task
@@ -37,6 +37,7 @@ from app.database import (
     save_admin_prompt,
     get_admin_prompt,
     get_search_client,
+    get_documents,
 )
 from app.dependencies import (
     get_company_session,
@@ -150,6 +151,19 @@ async def delete_document(
     logger.info(f"Document deleted successfully: {res}")
     return UploadResponse(status=res)
 
+@router.get("/documents")
+async def get_documents_for_company(
+    company: Company = Depends(get_current_company),
+) -> dict[str, list[FileMetadata]]:
+    """
+    Get all documents for the current company by ID.
+
+    Returns:
+        list[FileMetadata]: A list of metafiles.
+    """
+    result = get_documents(company_id=company.id)
+    return {"documents": result}
+    
 
 @router.get("/documents/upload/status/{task_id}")
 async def get_upload_status(task_id: str):
