@@ -26,7 +26,7 @@ class FileMetadata(SQLModel, table=True):
         id (str): The unique identifier for the file metadata.
         file_name (str): The name of the file.
         company_id (str): The ID of the company associated with the file.
-        document_id (str): The ID of the document associated with the file.
+        document_id (str): The ID of the document associated with the file. The document_id is needed for the search_client to search for all files. This is because the document in the vector store is stored in chunks with different IDs. The document_id is the union of the chunk IDs.
     """
 
     id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)
