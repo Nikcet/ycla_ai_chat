@@ -1,104 +1,13 @@
 from uuid import uuid4
 from shortuuid import uuid
-from sqlmodel import create_engine, Session, select, delete
-from azure.core.credentials import AzureKeyCredential
-from azure.search.documents import SearchClient
-from azure.search.documents.indexes import SearchIndexClient
-from azure.search.documents.indexes.models import (
-    CorsOptions,
-    SearchIndex,
-    ScoringProfile,
-    SearchFieldDataType,
-    SimpleField,
-    SearchableField,
-    LexicalAnalyzerName,
-)
+from sqlmodel import Session, select, delete
+from datetime import datetime, timedelta
+import jwt
 
 from app import logger, settings
 from app.models import Company, FileMetadata, AdminPrompt
 from app.utils import create_batch, encode_document_key
-
-
-engine = create_engine(settings.pg_url, echo=True)
-
-
-def get_search_client(index_name: str = settings.search_index):
-    """
-    Get a search client.
-
-    Args:
-        index_name (str): The name of the search index. Optional. Default is the value of the `search_index` setting.
-        If you need to create a new index with other name, use this field.
-
-    Returns:
-        SearchClient: The search client object.
-
-    Raises:
-        Exception: If the search client cannot be created.
-    """
-    client = SearchClient(
-        endpoint=settings.search_endpoint,
-        index_name=index_name,
-        credential=AzureKeyCredential(settings.search_admin_key),
-    )
-    if client is None:
-        raise Exception("Failed to create search client.")
-
-    logger.info("Created search client.")
-    return client
-
-
-def create_search_client(company_id: int):
-    """
-    Create a search client.
-
-    Args:
-        company_id (int): The ID of the company.
-
-    Returns:
-        SearchClient: The search client object.
-
-    Raises:
-        Exception: If the search client cannot be created.
-    """
-    client = SearchIndexClient(
-        endpoint=settings.search_endpoint,
-        credential=AzureKeyCredential(settings.search_admin_key),
-    )
-    name = settings.search_index + "-ai-chat-" + str(company_id)
-    fields = [
-        SimpleField(name="id", type=SearchFieldDataType.String, key=True),
-        SearchableField(
-            name="company_id", type=SearchFieldDataType.String, filterable=True
-        ),
-        SearchableField(
-            name="document_id", type=SearchFieldDataType.String, filterable=True
-        ),
-        SearchableField(
-            name="content",
-            type=SearchFieldDataType.String,
-            filterable=True,
-            analyzer_name=LexicalAnalyzerName.STANDARD_LUCENE,
-        ),
-        SearchableField(
-            name="embeddings",
-            type=SearchFieldDataType.Collection(SearchFieldDataType.Single),
-        ),
-    ]
-    cors_options = CorsOptions(allowed_origins=["*"], max_age_in_seconds=3600)
-    scoring_profiles: list[ScoringProfile] = []
-    index = SearchIndex(
-        name=name,
-        fields=fields,
-        scoring_profiles=scoring_profiles,
-        cors_options=cors_options,
-    )
-    result = client.create_index(index)
-    if result is None:
-        raise Exception("Failed to create search client.")
-
-    logger.info("Created admin client.")
-    return get_search_client(name)
+from app.clients import engine, search_client
 
 
 def upload_documents(documents: list[str], company_id: str) -> dict[str, bool]:
@@ -228,5 +137,93 @@ def get_admin_prompt(company: Company, session: Session) -> AdminPrompt:
     return admin_prompt
 
 
-search_client = get_search_client()
-# admin_client = create_search_client()
+def create_jwt(company_id: str, session_id: str = None) -> tuple[str, str]:
+    session_id = session_id or str(uuid4())
+    expires_at = datetime.today() + timedelta(seconds=settings.session_ttl)
+    payload = {
+        "company_id": company_id,
+        "session_id": session_id,
+        "exp": expires_at,
+    }
+    return (
+        jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm),
+        session_id,
+    )
+
+
+def decode_jwt(token: str) -> dict:
+    try:
+        return jwt.decode(
+            token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm]
+        )
+    except jwt.ExpiredSignatureError:
+        raise ValueError("Token expired")
+    except jwt.InvalidTokenError:
+        raise ValueError("Invalid token")
+
+
+# May need later. Need to make 'get_search_client' function with parameter 'index_name'.
+
+# from azure.core.credentials import AzureKeyCredential
+# from azure.search.documents.indexes import SearchIndexClient
+# from azure.search.documents.indexes.models import (
+#     CorsOptions,
+#     SearchIndex,
+#     ScoringProfile,
+#     SearchFieldDataType,
+#     SimpleField,
+#     SearchableField,
+#     LexicalAnalyzerName,
+# )
+
+# def create_search_client(company_id: int):
+#     """
+#     Create a search client.
+
+#     Args:
+#         company_id (int): The ID of the company.
+
+#     Returns:
+#         SearchClient: The search client object.
+
+#     Raises:
+#         Exception: If the search client cannot be created.
+#     """
+#     client = SearchIndexClient(
+#         endpoint=settings.search_endpoint,
+#         credential=AzureKeyCredential(settings.search_admin_key),
+#     )
+#     name = settings.search_index + "-ai-chat-" + str(company_id)
+#     fields = [
+#         SimpleField(name="id", type=SearchFieldDataType.String, key=True),
+#         SearchableField(
+#             name="company_id", type=SearchFieldDataType.String, filterable=True
+#         ),
+#         SearchableField(
+#             name="document_id", type=SearchFieldDataType.String, filterable=True
+#         ),
+#         SearchableField(
+#             name="content",
+#             type=SearchFieldDataType.String,
+#             filterable=True,
+#             analyzer_name=LexicalAnalyzerName.STANDARD_LUCENE,
+#         ),
+#         SearchableField(
+#             name="embeddings",
+#             type=SearchFieldDataType.Collection(SearchFieldDataType.Single),
+#         ),
+#     ]
+#     cors_options = CorsOptions(allowed_origins=["*"], max_age_in_seconds=3600)
+#     scoring_profiles: list[ScoringProfile] = []
+#     index = SearchIndex(
+#         name=name,
+#         fields=fields,
+#         scoring_profiles=scoring_profiles,
+#         cors_options=cors_options,
+#     )
+#     result = client.create_index(index)
+#     if result is None:
+#         raise Exception("Failed to create search client.")
+
+#     logger.info("Created admin client.")
+#     return get_search_client(name)
