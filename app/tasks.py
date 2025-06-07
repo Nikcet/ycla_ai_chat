@@ -1,9 +1,10 @@
 from sqlmodel import Session, delete
 
-from app.database import upload_documents, delete_documents, engine
-from app.celery_worker import celery_tasks
 from app import logger
+from app.database import upload_documents, delete_documents
+from app.celery_worker import celery_tasks
 from app.models import Company, AdminPrompt
+from app.clients import engine
 
 
 @celery_tasks.task
