@@ -62,7 +62,10 @@ class App_settings(BaseSettings):
     pg_url: str = Database_settings().pg_url
     
     nearest_neighbors: int = 5
-
+    
+    jwt_secret_key: str = os.getenv("JWT_SECRET_KEY", "")
+    jwt_algorithm: str = os.getenv("JWT_ALGORITHM", "")
+    session_ttl: int = 86400
 
 @lru_cache
 def get_app_settings():
