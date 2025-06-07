@@ -1,9 +1,7 @@
 import json
-from uuid import uuid4
-from fastapi import APIRouter, Depends, HTTPException, Header
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import JSONResponse
 from azure.search.documents.models import VectorizedQuery
-from azure.search.documents import SearchClient
-from redis import asyncio as aioredis
 from sqlmodel import Session
 from celery.result import AsyncResult
 from openai import (
@@ -24,7 +22,6 @@ from app.schemas import (
     RegisterResponse,
     RegisterRequest,
     UploadRequest,
-    ChatResponse,
     ChatRequest,
     TaskResponse,
     UploadResponse,
@@ -36,19 +33,21 @@ from app.database import (
     create_company,
     save_admin_prompt,
     get_admin_prompt,
-    get_search_client,
     get_documents,
 )
 from app.dependencies import (
     get_company_session,
     get_current_company,
+    get_session_from_jwt,
     get_redis_connection,
+    get_search_client,
 )
 
 
 router = APIRouter()
 
-@router.get('/')
+
+@router.get("/")
 async def root():
     return {"status": True}
 
@@ -69,21 +68,22 @@ async def register_company(
     company = create_company(req.name, session)
     return RegisterResponse(api_key=company.api_key)
 
+
 @router.delete("/company/delete", response_model=TaskResponse)
 async def delete_company(
-   company: Company = Depends(get_current_company),
+    company: Company = Depends(get_current_company),
 ):
-   """
-   Delete a company.
+    """
+    Delete a company.
 
-   Args:
-       x-apy-key (Header): Company API key from header.
+    Args:
+        x-apy-key (Header): Company API key from header.
 
-   Returns:
-       TaskResponse: The response object containing the task ID.
-   """
-   task = delete_company_task.delay(company_id=company.id)
-   return TaskResponse(task_id=task.id)
+    Returns:
+        TaskResponse: The response object containing the task ID.
+    """
+    task = delete_company_task.delay(company_id=company.id)
+    return TaskResponse(task_id=task.id)
 
 
 @router.post(
@@ -151,6 +151,7 @@ async def delete_document(
     logger.info(f"Document deleted successfully: {res}")
     return UploadResponse(status=res)
 
+
 @router.get("/documents")
 async def get_documents_for_company(
     company: Company = Depends(get_current_company),
@@ -163,7 +164,7 @@ async def get_documents_for_company(
     """
     result = get_documents(company_id=company.id)
     return {"documents": result}
-    
+
 
 @router.get("/documents/upload/status/{task_id}")
 async def get_upload_status(task_id: str):
@@ -196,6 +197,7 @@ async def get_deleting_status(task_id: str):
     logger.info(f"Task status is ready: {task.ready()}")
     return TaskStatusResponse(status=task.status, result=task.result)
 
+
 @router.get("/company/delete/status/{task_id}")
 async def get_company_deleting_status(task_id: str):
     """
@@ -211,10 +213,15 @@ async def get_company_deleting_status(task_id: str):
     logger.info(f"Task status is ready: {task.ready()}")
     return TaskStatusResponse(status=task.status, result=task.result)
 
-@router.post("/chat", response_model=ChatResponse)
+
+@router.post("/chat")
 async def chat(
     req: ChatRequest,
     company: Company = Depends(get_current_company),
+    session_data: tuple = Depends(get_session_from_jwt),
+    session: Session = Depends(get_company_session),
+    redis=Depends(get_redis_connection),
+    search_client=Depends(get_search_client),
 ):
     """
     Handle a chat request and return a response.
@@ -222,19 +229,16 @@ async def chat(
     Args:
         req (ChatRequest): The request object containing the question.
         x-apy-key (Header): Company API key from header.
+        x-jwt-token (Header): JWT token from header "Authorization". If is not, it will be created. Starts with "Bearer ".
 
     Returns:
-        ChatResponse: The response object containing the answer.
+        JSONResponse: The response object containing the answer and jwt in header.
 
     Raises:
         HTTPException: If there is an error while handling the chat request.
     """
-    session = get_company_session()
-    redis = get_redis_connection()
-    search_client = get_search_client()
-    
-    
-    session_id: str = str(uuid4())
+
+    session_id, jwt_token = session_data
 
     try:
         messages = await get_redis_history(redis, f"history:{company.id}:{session_id}")
@@ -242,7 +246,7 @@ async def chat(
         logger.error(f"Error getting redis history: {e}")
         messages = []
     try:
-        q_emb = await get_embedding(req.question)
+        q_emb = get_embedding(req.question)
 
         vectorized_query = VectorizedQuery(
             vector=q_emb,
@@ -251,13 +255,13 @@ async def chat(
         )
 
         logger.info(f"Searching for documents for company {company.id}")
-        results = await search_client.search(
+        results = search_client.search(
             search_text="*",
             vector_queries=[vectorized_query],
             filter=f"company_id eq '{company.id}'",
         )
         logger.info(f"Found documents for company {company.id}")
-        context = "\n".join([doc["content"] async for doc in results])
+        context = "\n".join([doc["content"] for doc in results])
     except Exception as e:
         logger.error(f"Error searching for documents: {e}")
         context = ""
@@ -351,7 +355,7 @@ async def chat(
     except Exception as e:
         logger.error(f"Error saving chat history: {e} for company {company.id}")
 
-    return ChatResponse(answer=answer)
+    return JSONResponse(content={"answer": answer}, headers={"x-jwt-token": jwt_token})
 
 
 @router.post(
@@ -381,7 +385,7 @@ async def save_prompt(
             return {"saved": True}
         except Exception as e:
             logger.error(f"Error saving admin prompt: {e}")
-            raise HTTPException(status_code=500, detail="Failed to save admin prompt") 
+            raise HTTPException(status_code=500, detail="Failed to save admin prompt")
     except Exception as e:
         logger.error(f"Error saving admin prompt: {e}")
         return {"saved": False}
