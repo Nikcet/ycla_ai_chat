@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from app.endpoints import router
 from app import logger
 from sqlmodel import SQLModel
-from app.database import engine
+from app.clients import engine
 
 app = FastAPI()
 app.add_middleware(
