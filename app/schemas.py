@@ -37,3 +37,6 @@ class TaskStatusResponse(BaseModel):
 
 class AdminPromptRequest(BaseModel):
     prompt: str
+
+class WebhookRequest(BaseModel):
+    webhook_url: str
