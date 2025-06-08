@@ -27,6 +27,7 @@ from app.schemas import (
     UploadResponse,
     TaskStatusResponse,
     AdminPromptRequest,
+    WebhookRequest,
 )
 from app.database import (
     delete_document_by_id,
@@ -71,6 +72,7 @@ async def register_company(
 
 @router.delete("/company/delete", response_model=TaskResponse)
 async def delete_company(
+    body: WebhookRequest,
     company: Company = Depends(get_current_company),
 ):
     """
@@ -78,11 +80,12 @@ async def delete_company(
 
     Args:
         x-apy-key (Header): Company API key from header.
+        webhook_url (str): Webhook URL to send task result.
 
     Returns:
         TaskResponse: The response object containing the task ID.
     """
-    task = delete_company_task.delay(company_id=company.id)
+    task = delete_company_task.delay(company_id=company.id, url=body.webhook_url)
     return TaskResponse(task_id=task.id)
 
 
@@ -91,7 +94,7 @@ async def delete_company(
     dependencies=[Depends(get_current_company)],
 )
 async def upload(
-    req: UploadRequest,
+    body: dict,
     company: Company = Depends(get_current_company),
 ):
     """
@@ -100,11 +103,19 @@ async def upload(
     Args:
         req (UploadRequest): The request object containing the documents to upload.
         x-apy-key (Header): Company API key from header.
+        webhook_url (str): Webhook URL to send task result.
 
     Returns:
         TaskResponse: The response object containing the task ID.
     """
-    task = upload_documents_task.delay(documents=req.documents, company_id=company.id)
+    try:
+        req = UploadRequest(**body)
+        webhook = WebhookRequest(**body)
+    except Exception as e:
+        logger.error(f"Error while parsing request body: {e}")
+        return UploadResponse(status="failed", message="Invalid request body")
+        
+    task = upload_documents_task.delay(documents=req.documents, company_id=company.id, url=webhook.webhook_url)
     return TaskResponse(task_id=task.task_id)
 
 
@@ -113,6 +124,7 @@ async def upload(
     dependencies=[Depends(get_current_company)],
 )
 async def delete_all_documents(
+    body: WebhookRequest,
     company: Company = Depends(get_current_company),
 ):
     """
@@ -120,11 +132,12 @@ async def delete_all_documents(
 
     Args:
         x-apy-key (Header): Company API key from header.
+        webhook_url (str): Webhook URL to send task result.
 
     Returns:
         TaskResponse: The response object containing the task ID.
     """
-    task = delete_documents_task.delay(company_id=company.id)
+    task = delete_documents_task.delay(company_id=company.id, url=body.webhook_url)
     return TaskResponse(task_id=task.task_id)
 
 
