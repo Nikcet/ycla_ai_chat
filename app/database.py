@@ -44,16 +44,17 @@ def upload_documents(documents: list[str], company_id: str) -> dict[str, bool]:
 
 
 def get_documents(company_id: str) -> list[FileMetadata] | None:
-    with Session(engine) as session:
-        result = session.exec(
-            select(FileMetadata).where(FileMetadata.company_id == company_id)
-        ).all()
-        logger.info(f"Result: {result}")
-        if not result:
-            return None
+    try:
+        with Session(engine) as session:
+            result = session.exec(
+                select(FileMetadata).where(FileMetadata.company_id == company_id)
+            ).all()
+            logger.info(f"Found {len(result)} documents for company {company_id}")
 
-        return result
-
+            return result
+    except Exception as e:
+        logger.error(f"Error while getting files: {e}")
+        return None
 
 def delete_documents(company_id: str) -> dict[str, bool]:
     try:
