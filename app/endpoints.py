@@ -171,10 +171,14 @@ async def get_documents_for_company(
 ) -> dict[str, list[FileMetadata]]:
     """
     Get all documents for the current company by ID.
+    
+    Args:
+        **company_id (str)**: The ID of the company.
 
     Returns:
         list[FileMetadata]: A list of metafiles.
     """
+    logger.info(f"Trying to get all documents for company {company.id}")
     result = get_documents(company_id=company.id)
     return {"documents": result}
 
