@@ -113,17 +113,46 @@ def create_company(company_name: str, session: Session) -> Company | None:
         return None
 
 
-def save_admin_prompt(admin_prompt: AdminPrompt, company: Company, session: Session):
-    old_prompt = session.exec(
-        select(AdminPrompt).where(AdminPrompt.company_id == company.id)
-    ).first()
-    if old_prompt:
-        session.delete(old_prompt)
+def save_admin_prompt(
+    admin_prompt: AdminPrompt,
+    company: Company,
+    session: Session
+) -> bool:
+    """
+    Save or update admin prompt in database with transaction safety.
+    
+    Args:
+        req: Request object containing prompt data
+        company: Company entity
+        session: Database session
+        
+    Returns:
+        bool: True if operation succeeded
+    """
+    try:
+        old_prompt = session.exec(
+            select(AdminPrompt).where(AdminPrompt.company_id == company.id)
+        ).first()
+        if old_prompt:
+            session.delete(old_prompt)
+
+            
+        
+        new_prompt = AdminPrompt(prompt=admin_prompt.prompt, company_id=company.id)
+        session.add(new_prompt)
         session.commit()
 
-    new_prompt = AdminPrompt(prompt=admin_prompt.prompt, company_id=company.id)
-    session.add(new_prompt)
-    session.commit()
+        
+        return True
+        
+    except ValueError as ve:
+        logger.warning(f"Validation failed for prompt: {ve}")
+        raise ve
+        
+    except Exception as e:
+        logger.error(f"Database error while saving prompt: {e}")
+        session.rollback()
+        raise e
 
 
 def get_admin_prompt(company: Company, session: Session) -> AdminPrompt:

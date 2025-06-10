@@ -15,7 +15,7 @@ from openai import (
 )
 
 from app import logger, settings
-from app.models import Company, FileMetadata
+from app.models import Company
 from app.utils import get_embedding, get_redis_history, set_redis_history
 from app.celery_worker import celery_tasks
 from app.tasks import upload_documents_task, delete_documents_task, delete_company_task
@@ -705,7 +705,7 @@ async def get_documents_for_company(
     - Each file contains metadata like ID, name, company association, and document ID for search
 
     Returns:
-        
+
         - documents: List of file metadata objects (empty if none found)
     """
     try:
@@ -794,17 +794,13 @@ async def get_company_deleting_status(task_id: str):
             "headers": {
                 "x-jwt-token": {
                     "description": "Updated JWT token for subsequent requests",
-                    "schema": {"type": "string"}
+                    "schema": {"type": "string"},
                 }
-            }
+            },
         },
         status.HTTP_401_UNAUTHORIZED: {
             "description": "Invalid or missing API key",
-            "content": {
-                "application/json": {
-                    "example": {"detail": "Invalid API Key"}
-                }
-            }
+            "content": {"application/json": {"example": {"detail": "Invalid API Key"}}},
         },
         status.HTTP_503_SERVICE_UNAVAILABLE: {
             "description": "AI service unavailable",
@@ -814,18 +810,20 @@ async def get_company_deleting_status(task_id: str):
                         "detail": "Failed to retrieve response from Azure OpenAI or Deepseek API. Try later."
                     }
                 }
-            }
+            },
         },
         status.HTTP_500_INTERNAL_SERVER_ERROR: {
             "description": "Internal server error",
             "content": {
                 "application/json": {
-                    "example": {"detail": "Unexpected error. Failed to retrieve response from AI API"}
+                    "example": {
+                        "detail": "Unexpected error. Failed to retrieve response from AI API"
+                    }
                 }
-            }
-        }
+            },
+        },
     },
-    status_code=status.HTTP_200_OK
+    status_code=status.HTTP_200_OK,
 )
 async def chat(
     req: ChatRequest,
@@ -837,7 +835,7 @@ async def chat(
 ):
     """
     Process a chat request using company-specific knowledge base and conversation history.
-    
+
     Process:
     1. Validate authentication and session
     2. Retrieve conversation history from Redis
@@ -845,23 +843,23 @@ async def chat(
     4. Generate answer using AI model (Azure/OpenAI or fallback to Deepseek)
     5. Save conversation history
     6. Return answer with updated JWT token
-    
+
     Important:
     - Uses Redis to maintain conversation state
     - Supports multiple AI backends with fallback mechanism
     - Requires valid company authentication
     - JWT token is automatically refreshed in headers
-    
+
     Args:
-    
+
         - question: User's query text
-            
+
     Returns:
         - answer: Generated response to the question
         - x-jwt-token: Updated JWT token in headers for subsequent requests
-    
+
     Raises:
-    
+
         HTTPException:
             - 401: Invalid authentication credentials
             - 503: AI service unavailable
@@ -992,6 +990,45 @@ async def chat(
     "/prompt",
     dependencies=[Depends(get_current_company), Depends(get_company_session)],
     tags=["Chat"],
+    summary="Save or update the administrative prompt for a company",
+    response_description="Result of the prompt saving operation",
+    responses={
+        status.HTTP_200_OK: {
+            "description": "Prompt successfully saved",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "saved": True
+                    }
+                }
+            }
+        },
+        status.HTTP_400_BAD_REQUEST: {
+            "description": "Invalid request data",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Invalid prompt format: Prompt must contain at least 5 characters"}
+                }
+            }
+        },
+        status.HTTP_401_UNAUTHORIZED: {
+            "description": "Invalid or missing API key",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Invalid API Key"}
+                }
+            }
+        },
+        status.HTTP_500_INTERNAL_SERVER_ERROR: {
+            "description": "Internal server error",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Failed to save prompt: Database connection timeout"}
+                }
+            }
+        }
+    },
+    status_code=status.HTTP_200_OK
 )
 async def save_prompt(
     req: AdminPromptRequest,
@@ -999,25 +1036,49 @@ async def save_prompt(
     session: Session = Depends(get_company_session),
 ):
     """
-    Save an admin prompt for a company.
-
+    Save or update the administrative prompt for a company.
+    
+    Process:
+    1. Validate incoming request data
+    2. Save prompt to database
+    3. Return operation result
+    
+    Important:
+    - Requires valid company authentication
+    - Overwrites existing prompt if one exists
+    - Supports rich text formatting in prompt content
+    
     Args:
-        req (AdminPromptRequest): The request object containing the prompt data.
-
+        - prompt: New prompt text to save
+            
     Returns:
-        dict: A dictionary with a success status.
-
+    
+        - saved: Boolean indicating success (True) or failure (False)
+            
     Raises:
-        HTTPException: If there is an error while saving the admin prompt.
+    
+        HTTPException:
+            - 400: Invalid request data
+            - 401: Authentication failed
+            - 500: Database operation error
     """
     try:
         logger.info(f"Saving admin prompt for company {company.id}")
         try:
-            save_admin_prompt(req, company, session)
-            return {"saved": True}
+            return {"saved": save_admin_prompt(req, company, session)}
+        except ValidationError as ve:
+            logger.error(f"Validation error in prompt request: {ve}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid prompt format: {ve}"
+            )
+        
         except Exception as e:
-            logger.error(f"Error saving admin prompt: {e}")
-            raise HTTPException(status_code=500, detail="Failed to save admin prompt")
+            logger.error(f"Critical error saving prompt for company {company.id}: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to save prompt: {str(e)}"
+            )
     except Exception as e:
         logger.error(f"Error saving admin prompt: {e}")
         return {"saved": False}

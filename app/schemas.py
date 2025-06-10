@@ -44,7 +44,7 @@ class TaskStatusResponse(BaseModel):
 
 
 class AdminPromptRequest(BaseModel):
-    prompt: str
+    prompt: str = Field(..., examples=["Ты - представитель компании ... "])
 
 
 class WebhookRequest(BaseModel):
@@ -102,3 +102,4 @@ class DocumentListResponse(BaseModel):
                 ]
             }
         }
+
