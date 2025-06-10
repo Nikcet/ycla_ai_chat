@@ -15,7 +15,7 @@ class UploadRequest(BaseModel):
     documents: list[str] = Field(
         ...,
         examples=[["path/to/doc1.pdf", "doc2.docx"]],
-        description="List of document filenames to upload"
+        description="List of documents filenames to upload",
     )
 
 
@@ -50,7 +50,7 @@ class WebhookRequest(BaseModel):
     webhook_url: HttpUrl = Field(
         ...,
         examples=["https://client.example.com/webhook"],
-        description="Valid HTTPS URL"
+        description="Valid HTTPS URL",
     )
 
 
@@ -64,18 +64,17 @@ class UploadWithWebhookRequest(BaseModel):
     documents: list[str] = Field(
         ...,
         examples=[["path/to/doc1.pdf", "doc2.docx"]],
-        description="List of document filenames to upload"
+        description="List of document filenames to upload",
     )
     webhook_url: HttpUrl = Field(
         ...,
-        examples=["https://client.example.com/webhook"], 
-        description="Valid HTTPS URL for result notification"
+        examples=["https://client.example.com/webhook"],
+        description="Valid HTTPS URL for result notification",
     )
 
-    # class Config:
-    #     schema_extra = {
-    #         "example": {
-    #             "documents": ["path/to/doc1.pdf", "doc2.docx"],
-    #             "webhook_url": "https://client.example.com/webhook" 
-    #         }
-    #     }
+
+class DeleteDocumentResponse(BaseModel):
+    status: dict[str, bool]
+
+    class Config:
+        schema_extra = {"example": {"status": {"success": True}}}

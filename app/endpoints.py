@@ -1,6 +1,6 @@
 import json
 from pydantic import ValidationError
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Path
 from fastapi.responses import JSONResponse
 from azure.search.documents.models import VectorizedQuery
 from azure.core.exceptions import ServiceRequestError
@@ -25,12 +25,12 @@ from app.schemas import (
     RegisterRequest,
     ChatRequest,
     TaskResponse,
-    UploadResponse,
     TaskStatusResponse,
     AdminPromptRequest,
     WebhookRequest,
     HealthResponse,
     UploadWithWebhookRequest,
+    DeleteDocumentResponse,
 )
 from app.database import (
     delete_document_by_id,
@@ -439,16 +439,15 @@ async def upload(
     except ValidationError as ve:
         logger.error(f"Validation error in request body: {ve}")
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid request body"
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid request body"
         )
     except KeyError as ke:
         logger.error(f"Missing required field in request body: {ke}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Missing required field: {ke}"
+            detail=f"Missing required field: {ke}",
         )
-        
+
     except Exception as e:
         logger.error(f"Failed to start upload task: {e}")
         raise HTTPException(
@@ -483,28 +482,102 @@ async def delete_all_documents(
 
 @router.delete(
     "/documents/delete/{document_id}",
-    dependencies=[Depends(get_current_company)],
     tags=["Documents"],
+    summary="Delete a document by ID for a company",
+    response_description="Result of the document deletion operation",
+    responses={
+        status.HTTP_200_OK: {
+            "description": "Document successfully deleted",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": {"success": True}
+                    }
+                }
+            }
+        },
+        status.HTTP_401_UNAUTHORIZED: {
+            "description": "Invalid or missing API key",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Invalid API Key"}
+                }
+            }
+        },
+        status.HTTP_404_NOT_FOUND: {
+            "description": "Document not found",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Document with ID '123' not found"}
+                }
+            }
+        },
+        status.HTTP_500_INTERNAL_SERVER_ERROR: {
+            "description": "Internal server error during deletion",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Failed to delete document: Database error"}
+                }
+            }
+        }
+    },
+    response_model=DeleteDocumentResponse,
+    status_code=status.HTTP_200_OK
 )
 async def delete_document(
-    document_id: str,
+    document_id: str = Path(..., description="The ID of the document to delete"),
     company: Company = Depends(get_current_company),
 ):
     """
-    Delete a document by ID for a company.
-
+    Delete a specific document for the current company.
+    
+    Process:
+    1. Validate document existence
+    2. Perform document deletion
+    3. Return deletion result
+    
+    Important:
+    - This operation is irreversible
+    - Requires valid company authentication
+    - **ID is stored in the database PostgreSQL in table "FileMetadata" with key "document_id".**
+    
     Args:
-        document_id (str): The ID of the document to delete.
-        x-apy-key (Header): Company API key from header.
-
+    
+        document_id (str): 
+            The unique identifier of the document to delete. 
+        
+            
     Returns:
-        UploadResponse: The response object containing the result of the deletion.
+    
+        DeleteDocumentResponse: 
+            - status: Dictionary with key "success" and boolean value
     """
-    logger.info(f"Deleting document {document_id} for company {company.id}")
-    res = delete_document_by_id(document_id=document_id)
-    logger.info(f"Document deleted successfully: {res}")
-    return UploadResponse(status=res)
-
+    try:
+        logger.info(f"Deleting document {document_id} for company {company.id}")
+        
+        result = delete_document_by_id(document_id=document_id)
+        
+        if not result or not result.get("success", False):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Document with ID '{document_id}' not found"
+            )
+            
+        logger.info(f"Document deleted successfully: {document_id}")
+        
+        return DeleteDocumentResponse(
+            status=result  # {"success": True}
+        )
+        
+    except HTTPException:
+        raise
+        
+    except Exception as e:
+        logger.error(f"Failed to delete document {document_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete document: {str(e)}"
+        )
 
 @router.get("/documents", tags=["documents"])
 async def get_documents_for_company(

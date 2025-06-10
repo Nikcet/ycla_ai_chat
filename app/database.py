@@ -70,10 +70,10 @@ def delete_documents(company_id: str) -> dict[str, bool]:
                 )
                 session.commit()
 
-        return {"deleted": True}
+        return {"success": True}
     except Exception as e:
         logger.error(f"Error while deleting files: {e}")
-        return {"deleted": False}
+        return {"success": False}
 
 
 def delete_document_by_id(document_id: str) -> dict[str, bool]:
@@ -96,13 +96,13 @@ def delete_document_by_id(document_id: str) -> dict[str, bool]:
             else:
                 raise
 
-        return {"deleted": True}
+        return {"success": True}
     except Exception as e:
         logger.error(f"Error while deleting file '{document_id}': {e}")
-        return {"deleted": False}
+        return {"success": False}
 
 
-def create_company(company_name: str, session: Session) -> Company | dict[str, bool]:
+def create_company(company_name: str, session: Session) -> Company | None:
     try:
         company = Company(name=company_name, api_key=str(uuid4()))
         session.add(company)
@@ -110,7 +110,7 @@ def create_company(company_name: str, session: Session) -> Company | dict[str, b
         return company
     except Exception as e:
         logger.error(f"Error while creating company '{company_name}': {e}")
-        return {"created": False}
+        return None
 
 
 def save_admin_prompt(admin_prompt: AdminPrompt, company: Company, session: Session):
