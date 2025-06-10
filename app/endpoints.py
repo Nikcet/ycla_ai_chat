@@ -2,7 +2,8 @@ import json
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
 from azure.search.documents.models import VectorizedQuery
-from sqlmodel import Session
+from azure.core.exceptions import ServiceRequestError
+from sqlmodel import Session, text
 from celery.result import AsyncResult
 from openai import (
     APIError,
@@ -17,7 +18,7 @@ from app.models import Company, FileMetadata
 from app.utils import get_embedding, get_redis_history, set_redis_history
 from app.celery_worker import celery_tasks
 from app.tasks import upload_documents_task, delete_documents_task, delete_company_task
-from app.clients import azure_client, deepseek_client
+from app.clients import azure_client, deepseek_client, search_client, redis, engine
 from app.schemas import (
     RegisterResponse,
     RegisterRequest,
@@ -28,6 +29,7 @@ from app.schemas import (
     TaskStatusResponse,
     AdminPromptRequest,
     WebhookRequest,
+    HealthResponse,
 )
 from app.database import (
     delete_document_by_id,
@@ -50,36 +52,122 @@ router = APIRouter()
 
 @router.get(
     "/",
-    tags=["root"],
-    summary="Check API availability",
-    response_description="Dictionary containing API status",
+    tags=["Root"],
+    summary="System Health Check",
+    response_description="Critical service status report",
     responses={
         status.HTTP_200_OK: {
-            "description": "API is fully operational",
+            "description": "All critical services are operational",
             "content": {
                 "application/json": {
-                    "example": {"status": True, "message": "Service is healthy"}
+                    "example": {
+                        "status": True,
+                        "message": "All systems operational",
+                        "services": {
+                            "postgres": "OK",
+                            "redis": "OK",
+                            "azure_search": {
+                                "status": "OK",
+                                "documents_count": 1500,
+                            },
+                        },
+                    }
                 }
             },
         },
         status.HTTP_503_SERVICE_UNAVAILABLE: {
-            "description": "API is temporarily unavailable",
+            "description": "Critical service unavailable",
             "content": {
                 "application/json": {
-                    "example": {"status": False, "message": "Service is down for maintenance"}
+                    "example": {
+                        "status": False,
+                        "message": "Service degradation detected",
+                        "services": {
+                            "postgres": "OK",
+                            "redis": "FAILED: Connection timeout",
+                            "azure_search": {
+                                "status": "OK",
+                                "documents_count": 1500,
+                            },
+                        },
+                    }
                 }
             },
-        }
+        },
     },
+    response_model=HealthResponse,
 )
 async def root():
     """
-    Root endpoint to check apis availability.
+    Comprehensive health check of critical system dependencies.
+
+    Verifies connectivity and basic functionality of:
+    - PostgreSQL database
+    - Redis cache and Celery-broker
+    - Azure AI Search service
+
+    For Azure AI Search, checks index statistics including:
+    - Documents count
     """
-    return {"status": True}
+    health_status = {
+        "status": True,
+        "message": "All systems operational",
+        "services": {},
+    }
+    errors = []
+
+    try:
+        with Session(engine) as session:
+            result = session.exec(text("SELECT 1")).one()
+            if result[0] != 1:
+                raise ConnectionError("PostgreSQL test query failed")
+            health_status["services"]["postgres"] = "OK"
+    except Exception as e:
+        error_msg = f"PostgreSQL: {str(e)}"
+        health_status["services"]["postgres"] = error_msg
+        errors.append(error_msg)
+        logger.error(error_msg)
+
+    try:
+        if await redis.ping():
+            health_status["services"]["redis"] = "OK"
+        else:
+            raise ConnectionError("Redis ping failed")
+    except Exception as e:
+        error_msg = f"Redis: {str(e)}"
+        health_status["services"]["redis"] = error_msg
+        errors.append(error_msg)
+        logger.error(error_msg)
+
+    try:
+        document_count = search_client.get_document_count()
+
+        health_status["services"]["azure_search"] = {
+            "status": "OK",
+            "documents_count": document_count,
+        }
+    except ServiceRequestError as e:
+        error_msg = f"Azure Search: {str(e)}"
+        health_status["services"]["azure_search"] = {"status": error_msg}
+        errors.append(error_msg)
+        logger.error(error_msg)
+    except Exception as e:
+        error_msg = f"Azure Search: {str(e)}"
+        health_status["services"]["azure_search"] = {"status": error_msg}
+        errors.append(error_msg)
+        logger.error(error_msg)
+
+    if errors:
+        health_status["status"] = False
+        health_status["message"] = f"Service degradation: {len(errors)} critical issues"
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=health_status
+        )
+
+    return HealthResponse(**health_status)
 
 
-@router.post("/company/register", response_model=RegisterResponse, tags=["company"])
+@router.post("/company/register", response_model=RegisterResponse, tags=["Company"])
 async def register_company(
     req: RegisterRequest, session: Session = Depends(get_company_session)
 ):
@@ -96,7 +184,7 @@ async def register_company(
     return RegisterResponse(api_key=company.api_key)
 
 
-@router.delete("/company/delete", response_model=TaskResponse, tags=["company"])
+@router.delete("/company/delete", response_model=TaskResponse, tags=["Company"])
 async def delete_company(
     body: WebhookRequest,
     company: Company = Depends(get_current_company),
@@ -116,7 +204,7 @@ async def delete_company(
 
 
 @router.post(
-    "/documents/upload", dependencies=[Depends(get_current_company)], tags=["documents"]
+    "/documents/upload", dependencies=[Depends(get_current_company)], tags=["Documents"]
 )
 async def upload(
     body: dict,
@@ -150,7 +238,7 @@ async def upload(
     "/documents/delete/all",
     dependencies=[Depends(get_current_company)],
     response_model=TaskResponse,
-    tags=["documents"],
+    tags=["Documents"],
 )
 async def delete_all_documents(
     body: WebhookRequest,
@@ -173,7 +261,7 @@ async def delete_all_documents(
 @router.delete(
     "/documents/delete/{document_id}",
     dependencies=[Depends(get_current_company)],
-    tags=["documents"],
+    tags=["Documents"],
 )
 async def delete_document(
     document_id: str,
@@ -213,7 +301,7 @@ async def get_documents_for_company(
     return {"documents": result}
 
 
-@router.get("/documents/upload/status/{task_id}", tags=["tasks_status"])
+@router.get("/documents/upload/status/{task_id}", tags=["Tasks status"])
 async def get_upload_status(task_id: str):
     """
     Get the status of an upload task.
@@ -229,7 +317,7 @@ async def get_upload_status(task_id: str):
     return TaskStatusResponse(status=task.status, result=task.result)
 
 
-@router.get("/documents/delete/status/{task_id}", tags=["tasks_status"])
+@router.get("/documents/delete/status/{task_id}", tags=["Tasks status"])
 async def get_deleting_status(task_id: str):
     """
     Get the status of a deleting task.
@@ -245,7 +333,7 @@ async def get_deleting_status(task_id: str):
     return TaskStatusResponse(status=task.status, result=task.result)
 
 
-@router.get("/company/delete/status/{task_id}", tags=["tasks_status"])
+@router.get("/company/delete/status/{task_id}", tags=["Tasks status"])
 async def get_company_deleting_status(task_id: str):
     """
     Get the status of a company deleting task.
@@ -261,7 +349,7 @@ async def get_company_deleting_status(task_id: str):
     return TaskStatusResponse(status=task.status, result=task.result)
 
 
-@router.post("/chat", tags=["chat"])
+@router.post("/chat", tags=["Chat"])
 async def chat(
     req: ChatRequest,
     company: Company = Depends(get_current_company),
@@ -408,7 +496,7 @@ async def chat(
 @router.post(
     "/prompt",
     dependencies=[Depends(get_current_company), Depends(get_company_session)],
-    tags=["chat"],
+    tags=["Chat"],
 )
 async def save_prompt(
     req: AdminPromptRequest,
