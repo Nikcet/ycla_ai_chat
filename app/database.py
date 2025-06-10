@@ -70,10 +70,10 @@ def delete_documents(company_id: str) -> dict[str, bool]:
                 )
                 session.commit()
 
-        return {"deleted": True}
+        return {"success": True}
     except Exception as e:
         logger.error(f"Error while deleting files: {e}")
-        return {"deleted": False}
+        return {"success": False}
 
 
 def delete_document_by_id(document_id: str) -> dict[str, bool]:
@@ -96,13 +96,13 @@ def delete_document_by_id(document_id: str) -> dict[str, bool]:
             else:
                 raise
 
-        return {"deleted": True}
+        return {"success": True}
     except Exception as e:
         logger.error(f"Error while deleting file '{document_id}': {e}")
-        return {"deleted": False}
+        return {"success": False}
 
 
-def create_company(company_name: str, session: Session) -> Company | dict[str, bool]:
+def create_company(company_name: str, session: Session) -> Company | None:
     try:
         company = Company(name=company_name, api_key=str(uuid4()))
         session.add(company)
@@ -110,20 +110,49 @@ def create_company(company_name: str, session: Session) -> Company | dict[str, b
         return company
     except Exception as e:
         logger.error(f"Error while creating company '{company_name}': {e}")
-        return {"created": False}
+        return None
 
 
-def save_admin_prompt(admin_prompt: AdminPrompt, company: Company, session: Session):
-    old_prompt = session.exec(
-        select(AdminPrompt).where(AdminPrompt.company_id == company.id)
-    ).first()
-    if old_prompt:
-        session.delete(old_prompt)
+def save_admin_prompt(
+    admin_prompt: AdminPrompt,
+    company: Company,
+    session: Session
+) -> bool:
+    """
+    Save or update admin prompt in database with transaction safety.
+    
+    Args:
+        req: Request object containing prompt data
+        company: Company entity
+        session: Database session
+        
+    Returns:
+        bool: True if operation succeeded
+    """
+    try:
+        old_prompt = session.exec(
+            select(AdminPrompt).where(AdminPrompt.company_id == company.id)
+        ).first()
+        if old_prompt:
+            session.delete(old_prompt)
+
+            
+        
+        new_prompt = AdminPrompt(prompt=admin_prompt.prompt, company_id=company.id)
+        session.add(new_prompt)
         session.commit()
 
-    new_prompt = AdminPrompt(prompt=admin_prompt.prompt, company_id=company.id)
-    session.add(new_prompt)
-    session.commit()
+        
+        return True
+        
+    except ValueError as ve:
+        logger.warning(f"Validation failed for prompt: {ve}")
+        raise ve
+        
+    except Exception as e:
+        logger.error(f"Database error while saving prompt: {e}")
+        session.rollback()
+        raise e
 
 
 def get_admin_prompt(company: Company, session: Session) -> AdminPrompt:

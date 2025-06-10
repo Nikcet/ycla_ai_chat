@@ -1,21 +1,27 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, HttpUrl
 from typing import Any
+from app.models import FileMetadata
 
 
 class RegisterRequest(BaseModel):
-    name: str
+    name: str = Field(min_length=2, max_length=100, examples=["Ycla AI"])
 
 
 class RegisterResponse(BaseModel):
     api_key: str
+    message: str
 
 
 class UploadRequest(BaseModel):
-    documents: list[str]
+    documents: list[str] = Field(
+        ...,
+        examples=[["path/to/doc1.pdf", "doc2.docx"]],
+        description="List of documents filenames to upload",
+    )
 
 
 class ChatRequest(BaseModel):
-    question: str
+    question: str = Field(..., examples=["Расскажите кратко о вашей компании"])
 
 
 class ChatResponse(BaseModel):
@@ -24,6 +30,8 @@ class ChatResponse(BaseModel):
 
 class TaskResponse(BaseModel):
     task_id: str
+    message: str
+    monitoring_url: str
 
 
 class UploadResponse(BaseModel):
@@ -36,7 +44,62 @@ class TaskStatusResponse(BaseModel):
 
 
 class AdminPromptRequest(BaseModel):
-    prompt: str
+    prompt: str = Field(..., examples=["Ты - представитель компании ... "])
+
 
 class WebhookRequest(BaseModel):
-    webhook_url: str
+    webhook_url: HttpUrl = Field(
+        ...,
+        examples=["https://client.example.com/webhook"],
+        description="Valid HTTPS URL",
+    )
+
+
+class HealthResponse(BaseModel):
+    status: bool
+    message: str
+    services: dict
+
+
+class UploadWithWebhookRequest(BaseModel):
+    documents: list[str] = Field(
+        ...,
+        examples=[["path/to/doc1.pdf", "doc2.docx"]],
+        description="List of document filenames to upload",
+    )
+    webhook_url: HttpUrl = Field(
+        ...,
+        examples=["https://client.example.com/webhook"],
+        description="Valid HTTPS URL for result notification",
+    )
+
+
+class DeleteDocumentResponse(BaseModel):
+    status: dict[str, bool]
+
+    class Config:
+        schema_extra = {"example": {"status": {"success": True}}}
+
+class DocumentListResponse(BaseModel):
+    documents: list[FileMetadata] = []
+    
+    class Config:
+        schema_extra = {
+            "example": {
+                "documents": [
+                    {
+                        "id": "550e8400-e29b-41d4-a716-446655440000",
+                        "file_name": "report.pdf",
+                        "company_id": "company_001",
+                        "document_id": "doc_123"
+                    },
+                    {
+                        "id": "550e8400-e29b-41d4-a716-446655440001",
+                        "file_name": "presentation.pptx",
+                        "company_id": "company_001",
+                        "document_id": "doc_456"
+                    }
+                ]
+            }
+        }
+
