@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field, HttpUrl
 from typing import Any
+from app.models import FileMetadata
 
 
 class RegisterRequest(BaseModel):
@@ -78,3 +79,26 @@ class DeleteDocumentResponse(BaseModel):
 
     class Config:
         schema_extra = {"example": {"status": {"success": True}}}
+
+class DocumentListResponse(BaseModel):
+    documents: list[FileMetadata] = []
+    
+    class Config:
+        schema_extra = {
+            "example": {
+                "documents": [
+                    {
+                        "id": "550e8400-e29b-41d4-a716-446655440000",
+                        "file_name": "report.pdf",
+                        "company_id": "company_001",
+                        "document_id": "doc_123"
+                    },
+                    {
+                        "id": "550e8400-e29b-41d4-a716-446655440001",
+                        "file_name": "presentation.pptx",
+                        "company_id": "company_001",
+                        "document_id": "doc_456"
+                    }
+                ]
+            }
+        }

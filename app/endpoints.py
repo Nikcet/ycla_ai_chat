@@ -31,6 +31,7 @@ from app.schemas import (
     HealthResponse,
     UploadWithWebhookRequest,
     DeleteDocumentResponse,
+    DocumentListResponse,
 )
 from app.database import (
     delete_document_by_id,
@@ -458,26 +459,101 @@ async def upload(
 
 @router.delete(
     "/documents/delete/all",
-    dependencies=[Depends(get_current_company)],
-    response_model=TaskResponse,
     tags=["Documents"],
+    summary="Delete all documents for a company asynchronously",
+    response_description="Task ID for the deletion operation",
+    responses={
+        status.HTTP_202_ACCEPTED: {
+            "description": "Deletion task successfully queued",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "task_id": "550e8400-e29b-41d4-a716-446655440000",
+                        "message": "All documents deletion task started. Results will be sent to https://webhook.example.com",
+                        "monitoring_url": "/documents/delete/status/550e8400-e29b-41d4-a716-446655440000",
+                    }
+                }
+            },
+        },
+        status.HTTP_401_UNAUTHORIZED: {
+            "description": "Invalid or missing API key",
+            "content": {"application/json": {"example": {"detail": "Invalid API Key"}}},
+        },
+        status.HTTP_400_BAD_REQUEST: {
+            "description": "Invalid webhook URL format",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Invalid webhook URL format"}
+                }
+            },
+        },
+        status.HTTP_500_INTERNAL_SERVER_ERROR: {
+            "description": "Failed to queue deletion task",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "Failed to start deletion task: Broker connection error"
+                    }
+                }
+            },
+        },
+    },
+    response_model=TaskResponse,
+    status_code=status.HTTP_202_ACCEPTED,
 )
 async def delete_all_documents(
     body: WebhookRequest,
     company: Company = Depends(get_current_company),
 ):
     """
-    Delete all documents for a company.
+    Initiate asynchronous deletion of all documents for the current company.
+
+    Process:
+    1. Validate webhook URL format
+    2. Queue deletion task in Celery
+    3. Return task ID for tracking
+
+    Important:
+    - Actual deletion happens asynchronously
+    - Results will be sent to the provided webhook URL
+    - This action is irreversible and affects all documents
+    - **Azure AI Search deletion is asynchronous, so it can take some time to finish after success response.**
 
     Args:
-        **x-apy-key (Header)**: Company API key from header.
-        **webhook_url (str)**: Webhook URL to send task result.
+
+        - webhook_url: URL to receive deletion result notification
 
     Returns:
-        TaskResponse: The response object containing the task ID.
+
+        - task_id: Celery task ID for tracking
+        - message: Confirmation message with webhook URL
+        - monitoring_url: URL to check task status
     """
-    task = delete_documents_task.delay(company_id=company.id, url=body.webhook_url)
-    return TaskResponse(task_id=task.task_id)
+    try:
+        logger.info(f"Initiating deletion of all documents for company {company.id}")
+
+        task = delete_documents_task.delay(
+            company_id=company.id, url=str(body.webhook_url)
+        )
+
+        return TaskResponse(
+            task_id=task.id,
+            message=f"All documents deletion task started. Results will be sent to {body.webhook_url}",
+            monitoring_url=f"/documents/delete/status/{task.id}",
+        )
+
+    except ValidationError as ve:
+        logger.error(f"Validation error in webhook URL: {ve}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid webhook URL format"
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to start deletion task: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to start deletion task: {str(e)}",
+        )
 
 
 @router.delete(
@@ -488,21 +564,11 @@ async def delete_all_documents(
     responses={
         status.HTTP_200_OK: {
             "description": "Document successfully deleted",
-            "content": {
-                "application/json": {
-                    "example": {
-                        "status": {"success": True}
-                    }
-                }
-            }
+            "content": {"application/json": {"example": {"status": {"success": True}}}},
         },
         status.HTTP_401_UNAUTHORIZED: {
             "description": "Invalid or missing API key",
-            "content": {
-                "application/json": {
-                    "example": {"detail": "Invalid API Key"}
-                }
-            }
+            "content": {"application/json": {"example": {"detail": "Invalid API Key"}}},
         },
         status.HTTP_404_NOT_FOUND: {
             "description": "Document not found",
@@ -510,7 +576,7 @@ async def delete_all_documents(
                 "application/json": {
                     "example": {"detail": "Document with ID '123' not found"}
                 }
-            }
+            },
         },
         status.HTTP_500_INTERNAL_SERVER_ERROR: {
             "description": "Internal server error during deletion",
@@ -518,11 +584,11 @@ async def delete_all_documents(
                 "application/json": {
                     "example": {"detail": "Failed to delete document: Database error"}
                 }
-            }
-        }
+            },
+        },
     },
     response_model=DeleteDocumentResponse,
-    status_code=status.HTTP_200_OK
+    status_code=status.HTTP_200_OK,
 )
 async def delete_document(
     document_id: str = Path(..., description="The ID of the document to delete"),
@@ -530,71 +596,136 @@ async def delete_document(
 ):
     """
     Delete a specific document for the current company.
-    
+
     Process:
     1. Validate document existence
     2. Perform document deletion
     3. Return deletion result
-    
+
     Important:
     - This operation is irreversible
     - Requires valid company authentication
     - **ID is stored in the database PostgreSQL in table "FileMetadata" with key "document_id".**
-    
+
     Args:
-    
-        document_id (str): 
-            The unique identifier of the document to delete. 
-        
-            
+
+        document_id (str):
+            The unique identifier of the document to delete.
+
+
     Returns:
-    
-        DeleteDocumentResponse: 
+
+        DeleteDocumentResponse:
             - status: Dictionary with key "success" and boolean value
     """
     try:
         logger.info(f"Deleting document {document_id} for company {company.id}")
-        
+
         result = delete_document_by_id(document_id=document_id)
-        
+
         if not result or not result.get("success", False):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Document with ID '{document_id}' not found"
+                detail=f"Document with ID '{document_id}' not found",
             )
-            
+
         logger.info(f"Document deleted successfully: {document_id}")
-        
-        return DeleteDocumentResponse(
-            status=result  # {"success": True}
-        )
-        
+
+        return DeleteDocumentResponse(status=result)  # {"success": True}
+
     except HTTPException:
         raise
-        
+
     except Exception as e:
         logger.error(f"Failed to delete document {document_id}: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to delete document: {str(e)}"
+            detail=f"Failed to delete document: {str(e)}",
         )
 
-@router.get("/documents", tags=["documents"])
+
+@router.get(
+    "/documents",
+    tags=["Documents"],
+    summary="Get all documents for the current company",
+    response_description="List of documents for the company",
+    responses={
+        status.HTTP_200_OK: {
+            "description": "List of documents successfully retrieved",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "documents": [
+                            {
+                                "id": "550e8400-e29b-41d4-a716-446655440000",
+                                "file_name": "report.pdf",
+                                "company_id": "company_001",
+                                "document_id": "doc_123",
+                            },
+                            {
+                                "id": "550e8400-e29b-41d4-a716-446655440001",
+                                "file_name": "presentation.pptx",
+                                "company_id": "company_001",
+                                "document_id": "doc_456",
+                            },
+                        ]
+                    }
+                }
+            },
+        },
+        status.HTTP_401_UNAUTHORIZED: {
+            "description": "Invalid or missing API key",
+            "content": {"application/json": {"example": {"detail": "Invalid API Key"}}},
+        },
+        status.HTTP_500_INTERNAL_SERVER_ERROR: {
+            "description": "Internal server error while fetching documents",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Failed to fetch documents: Database error"}
+                }
+            },
+        },
+    },
+    response_model=DocumentListResponse,
+    status_code=status.HTTP_200_OK,
+)
 async def get_documents_for_company(
     company: Company = Depends(get_current_company),
-) -> dict[str, list[FileMetadata]]:
+) -> DocumentListResponse:
     """
-    Get all documents for the current company by ID.
+    Retrieve all documents for the current authenticated company.
 
-    Args:
-        **company_id (str)**: The ID of the company.
+    Process:
+    1. Fetch documents from storage by company ID
+    2. Return list of document metadata
+
+    Important:
+    - Returns empty list if no documents found
+    - Requires valid company authentication
+    - Each file contains metadata like ID, name, company association, and document ID for search
 
     Returns:
-        list[FileMetadata]: A list of metafiles.
+        
+        - documents: List of file metadata objects (empty if none found)
     """
-    logger.info(f"Trying to get all documents for company {company.id}")
-    result = get_documents(company_id=company.id)
-    return {"documents": result}
+    try:
+        logger.info(f"Fetching documents for company {company.id}")
+
+        result = get_documents(company_id=company.id)
+
+        if result is None:
+            logger.info(f"No documents found for company {company.id}")
+            return DocumentListResponse(documents=[])
+
+        logger.info(f"Found {len(result)} documents for company {company.id}")
+        return DocumentListResponse(documents=result)
+
+    except Exception as e:
+        logger.error(f"Failed to fetch documents for company {company.id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch documents: {str(e)}",
+        )
 
 
 @router.get("/documents/upload/status/{task_id}", tags=["Tasks status"])

@@ -23,6 +23,7 @@ class FileMetadata(SQLModel, table=True):
     Represents file metadata in the database.
 
     Attributes:
+    
         id (str): The unique identifier for the file metadata.
         file_name (str): The name of the file.
         company_id (str): The ID of the company associated with the file.
@@ -33,6 +34,9 @@ class FileMetadata(SQLModel, table=True):
     file_name: str
     company_id: str = Field(foreign_key="company.id")
     document_id: str
+    
+    class Config:
+        from_attributes = True
 
 
 class AdminPrompt(SQLModel, table=True):
