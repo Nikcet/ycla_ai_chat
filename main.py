@@ -6,7 +6,11 @@ from app import logger
 from sqlmodel import SQLModel
 from app.clients import engine
 
-app = FastAPI()
+app = FastAPI(
+    title="Ycla AI API",
+    summary="API of Ycla AI service: https://ycla.ai/",
+    version="0.8.2",
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["https://ycla.ai/"],
