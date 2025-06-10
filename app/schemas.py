@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, HttpUrl
 from typing import Any
 
 
@@ -25,6 +25,8 @@ class ChatResponse(BaseModel):
 
 class TaskResponse(BaseModel):
     task_id: str
+    message: str
+    monitoring_url: str
 
 
 class UploadResponse(BaseModel):
@@ -41,7 +43,11 @@ class AdminPromptRequest(BaseModel):
 
 
 class WebhookRequest(BaseModel):
-    webhook_url: str
+    webhook_url: HttpUrl = Field(
+        ...,
+        examples=["https://client.example.com/webhook"],
+        description="Valid HTTPS URL"
+    )
 
 
 class HealthResponse(BaseModel):

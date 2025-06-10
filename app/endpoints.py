@@ -260,23 +260,100 @@ async def register_company(
             detail=f"Failed to register company: {str(e)}"
         )
 
-@router.delete("/company/delete", response_model=TaskResponse, tags=["Company"])
+@router.delete(
+    "/company/delete",
+    tags=["Company"],
+    summary="Delete a company",
+    response_description="Task ID for the deletion operation",
+    responses={
+        status.HTTP_202_ACCEPTED: {
+            "description": "Deletion task successfully queued",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "task_id": "550e8400-e29b-41d4-a716-446655440000",
+                        "message": "Company deletion task started. Results will be sent to https://webhook.example.com"
+                    }
+                }
+            }
+        },
+        status.HTTP_401_UNAUTHORIZED: {
+            "description": "Invalid or missing API key",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Invalid API Key"}
+                }
+            }
+        },
+        status.HTTP_400_BAD_REQUEST: {
+            "description": "Invalid webhook URL",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Invalid webhook URL format"}
+                }
+            }
+        },
+        status.HTTP_500_INTERNAL_SERVER_ERROR: {
+            "description": "Failed to queue deletion task",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Failed to start deletion task: Broker connection error"}
+                }
+            }
+        }
+    },
+    response_model=TaskResponse,
+    status_code=status.HTTP_202_ACCEPTED
+)
 async def delete_company(
     body: WebhookRequest,
     company: Company = Depends(get_current_company),
 ):
     """
-    Delete a company.
-
+    Initiate company deletion process as an asynchronous task.
+    
+    Process:
+    1. Validate webhook URL format
+    2. Queue deletion task in Celery
+    3. Return task ID for tracking
+    
+    Important:
+    - Actual deletion happens asynchronously
+    - Results will be sent to the provided webhook URL
+    - This action is irreversible
+    
     Args:
-        x-apy-key (Header): Company API key from header.
-        webhook_url (str): Webhook URL to send task result.
-
+        body (WebhookRequest): 
+        
+            - webhook_url: URL to receive deletion result notification
+        
     Returns:
-        TaskResponse: The response object containing the task ID.
+        TaskResponse: 
+        
+            - task_id: Celery task ID for tracking
+            - message: Confirmation message with webhook URL
     """
-    task = delete_company_task.delay(company_id=company.id, url=body.webhook_url)
-    return TaskResponse(task_id=task.id)
+    try:
+        task = delete_company_task.delay(
+            company_id=company.id, 
+            url=str(body.webhook_url)
+        )
+        
+        return TaskResponse(
+            task_id=task.id,
+            message=f"Company deletion task started. Results will be sent to {body.webhook_url}",
+            monitoring_url=f"/company/delete/status/{task.id}"
+        )
+        
+    except HTTPException:
+        raise
+        
+    except Exception as e:
+        logger.error(f"Failed to start deletion task: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to start deletion task: {str(e)}"
+        )
 
 
 @router.post(
