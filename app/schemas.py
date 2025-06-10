@@ -8,6 +8,7 @@ class RegisterRequest(BaseModel):
 
 class RegisterResponse(BaseModel):
     api_key: str
+    message: str
 
 
 class UploadRequest(BaseModel):

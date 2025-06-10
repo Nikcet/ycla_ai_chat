@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
 from azure.search.documents.models import VectorizedQuery
 from azure.core.exceptions import ServiceRequestError
-from sqlmodel import Session, text
+from sqlmodel import Session, text, select, func
 from celery.result import AsyncResult
 from openai import (
     APIError,
@@ -167,22 +167,98 @@ async def root():
     return HealthResponse(**health_status)
 
 
-@router.post("/company/register", response_model=RegisterResponse, tags=["Company"])
+@router.post(
+    "/company/register",
+    tags=["Company"],
+    summary="Register a new company",
+    response_description="API key for the newly registered company",
+    responses={
+        status.HTTP_201_CREATED: {
+            "description": "Company successfully registered",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "api_key": "sk-1234567890abcdef1234567890abcdef",
+                        "message": "Company 'Acme Inc' registered successfully"
+                    }
+                }
+            }
+        },
+        status.HTTP_409_CONFLICT: {
+            "description": "Company with this name already exists",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "Company 'Acme Inc' already exists"
+                    }
+                }
+            }
+        },
+        status.HTTP_500_INTERNAL_SERVER_ERROR: {
+            "description": "Internal server error during registration",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "Failed to register company: Database error"
+                    }
+                }
+            }
+        }
+    },
+    response_model=RegisterResponse,
+    status_code=status.HTTP_201_CREATED
+)
 async def register_company(
-    req: RegisterRequest, session: Session = Depends(get_company_session)
+    req: RegisterRequest, 
+    session: Session = Depends(get_company_session)
 ):
     """
-    Register a new company and return a response with an API key.
-
+    Register a new company and generate a unique API key.
+    
+    Process:
+    1. Validate company name
+    2. Check for existing company with same name
+    3. Generate unique API key
+    4. Persist company record in database
+    
     Args:
-        req (RegisterRequest): The request object containing the company name.
-
+        req (RegisterRequest): 
+        
+            - name: Legal name of the company
+    
     Returns:
-        RegisterResponse: The response object containing the API key.
+        RegisterResponse: 
+        
+            - api_key: Generated API key for the company
+            - message: Success confirmation message
     """
-    company = create_company(req.name, session)
-    return RegisterResponse(api_key=company.api_key)
-
+    try:
+        existing_company = session.exec(
+            select(Company).where(func.lower(Company.name) == func.lower(req.name))
+        ).first()
+        
+        if existing_company:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Company '{req.name}' already exists"
+            )
+        
+        company = create_company(req.name, session)
+        
+        return RegisterResponse(
+            api_key=company.api_key,
+            message=f"Company '{req.name}' registered successfully"
+        )
+        
+    except HTTPException:
+        raise
+        
+    except Exception as e:
+        logger.error(f"Company registration failed: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to register company: {str(e)}"
+        )
 
 @router.delete("/company/delete", response_model=TaskResponse, tags=["Company"])
 async def delete_company(
