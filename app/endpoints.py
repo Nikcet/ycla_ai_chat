@@ -1,5 +1,5 @@
 import json
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
 from azure.search.documents.models import VectorizedQuery
 from sqlmodel import Session
@@ -48,12 +48,38 @@ from app.dependencies import (
 router = APIRouter()
 
 
-@router.get("/")
+@router.get(
+    "/",
+    tags=["root"],
+    summary="Check API availability",
+    response_description="Dictionary containing API status",
+    responses={
+        status.HTTP_200_OK: {
+            "description": "API is fully operational",
+            "content": {
+                "application/json": {
+                    "example": {"status": True, "message": "Service is healthy"}
+                }
+            },
+        },
+        status.HTTP_503_SERVICE_UNAVAILABLE: {
+            "description": "API is temporarily unavailable",
+            "content": {
+                "application/json": {
+                    "example": {"status": False, "message": "Service is down for maintenance"}
+                }
+            },
+        }
+    },
+)
 async def root():
+    """
+    Root endpoint to check apis availability.
+    """
     return {"status": True}
 
 
-@router.post("/company/register", response_model=RegisterResponse)
+@router.post("/company/register", response_model=RegisterResponse, tags=["company"])
 async def register_company(
     req: RegisterRequest, session: Session = Depends(get_company_session)
 ):
@@ -70,7 +96,7 @@ async def register_company(
     return RegisterResponse(api_key=company.api_key)
 
 
-@router.delete("/company/delete", response_model=TaskResponse)
+@router.delete("/company/delete", response_model=TaskResponse, tags=["company"])
 async def delete_company(
     body: WebhookRequest,
     company: Company = Depends(get_current_company),
@@ -90,8 +116,7 @@ async def delete_company(
 
 
 @router.post(
-    "/documents/upload",
-    dependencies=[Depends(get_current_company)],
+    "/documents/upload", dependencies=[Depends(get_current_company)], tags=["documents"]
 )
 async def upload(
     body: dict,
@@ -114,14 +139,18 @@ async def upload(
     except Exception as e:
         logger.error(f"Error while parsing request body: {e}")
         return UploadResponse(status="failed", message="Invalid request body")
-        
-    task = upload_documents_task.delay(documents=req.documents, company_id=company.id, url=webhook.webhook_url)
+
+    task = upload_documents_task.delay(
+        documents=req.documents, company_id=company.id, url=webhook.webhook_url
+    )
     return TaskResponse(task_id=task.task_id)
 
 
 @router.delete(
     "/documents/delete/all",
     dependencies=[Depends(get_current_company)],
+    response_model=TaskResponse,
+    tags=["documents"],
 )
 async def delete_all_documents(
     body: WebhookRequest,
@@ -131,8 +160,8 @@ async def delete_all_documents(
     Delete all documents for a company.
 
     Args:
-        x-apy-key (Header): Company API key from header.
-        webhook_url (str): Webhook URL to send task result.
+        **x-apy-key (Header)**: Company API key from header.
+        **webhook_url (str)**: Webhook URL to send task result.
 
     Returns:
         TaskResponse: The response object containing the task ID.
@@ -144,6 +173,7 @@ async def delete_all_documents(
 @router.delete(
     "/documents/delete/{document_id}",
     dependencies=[Depends(get_current_company)],
+    tags=["documents"],
 )
 async def delete_document(
     document_id: str,
@@ -165,13 +195,13 @@ async def delete_document(
     return UploadResponse(status=res)
 
 
-@router.get("/documents")
+@router.get("/documents", tags=["documents"])
 async def get_documents_for_company(
     company: Company = Depends(get_current_company),
 ) -> dict[str, list[FileMetadata]]:
     """
     Get all documents for the current company by ID.
-    
+
     Args:
         **company_id (str)**: The ID of the company.
 
@@ -183,7 +213,7 @@ async def get_documents_for_company(
     return {"documents": result}
 
 
-@router.get("/documents/upload/status/{task_id}")
+@router.get("/documents/upload/status/{task_id}", tags=["tasks_status"])
 async def get_upload_status(task_id: str):
     """
     Get the status of an upload task.
@@ -199,7 +229,7 @@ async def get_upload_status(task_id: str):
     return TaskStatusResponse(status=task.status, result=task.result)
 
 
-@router.get("/documents/delete/status/{task_id}")
+@router.get("/documents/delete/status/{task_id}", tags=["tasks_status"])
 async def get_deleting_status(task_id: str):
     """
     Get the status of a deleting task.
@@ -215,7 +245,7 @@ async def get_deleting_status(task_id: str):
     return TaskStatusResponse(status=task.status, result=task.result)
 
 
-@router.get("/company/delete/status/{task_id}")
+@router.get("/company/delete/status/{task_id}", tags=["tasks_status"])
 async def get_company_deleting_status(task_id: str):
     """
     Get the status of a company deleting task.
@@ -231,7 +261,7 @@ async def get_company_deleting_status(task_id: str):
     return TaskStatusResponse(status=task.status, result=task.result)
 
 
-@router.post("/chat")
+@router.post("/chat", tags=["chat"])
 async def chat(
     req: ChatRequest,
     company: Company = Depends(get_current_company),
@@ -376,7 +406,9 @@ async def chat(
 
 
 @router.post(
-    "/prompt", dependencies=[Depends(get_current_company), Depends(get_company_session)]
+    "/prompt",
+    dependencies=[Depends(get_current_company), Depends(get_company_session)],
+    tags=["chat"],
 )
 async def save_prompt(
     req: AdminPromptRequest,
