@@ -1,4 +1,5 @@
 import json
+from pydantic import ValidationError
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
 from azure.search.documents.models import VectorizedQuery
@@ -22,7 +23,6 @@ from app.clients import azure_client, deepseek_client, search_client, redis, eng
 from app.schemas import (
     RegisterResponse,
     RegisterRequest,
-    UploadRequest,
     ChatRequest,
     TaskResponse,
     UploadResponse,
@@ -30,6 +30,7 @@ from app.schemas import (
     AdminPromptRequest,
     WebhookRequest,
     HealthResponse,
+    UploadWithWebhookRequest,
 )
 from app.database import (
     delete_document_by_id,
@@ -179,56 +180,51 @@ async def root():
                 "application/json": {
                     "example": {
                         "api_key": "sk-1234567890abcdef1234567890abcdef",
-                        "message": "Company 'Acme Inc' registered successfully"
+                        "message": "Company 'Acme Inc' registered successfully",
                     }
                 }
-            }
+            },
         },
         status.HTTP_409_CONFLICT: {
             "description": "Company with this name already exists",
             "content": {
                 "application/json": {
-                    "example": {
-                        "detail": "Company 'Acme Inc' already exists"
-                    }
+                    "example": {"detail": "Company 'Acme Inc' already exists"}
                 }
-            }
+            },
         },
         status.HTTP_500_INTERNAL_SERVER_ERROR: {
             "description": "Internal server error during registration",
             "content": {
                 "application/json": {
-                    "example": {
-                        "detail": "Failed to register company: Database error"
-                    }
+                    "example": {"detail": "Failed to register company: Database error"}
                 }
-            }
-        }
+            },
+        },
     },
     response_model=RegisterResponse,
-    status_code=status.HTTP_201_CREATED
+    status_code=status.HTTP_201_CREATED,
 )
 async def register_company(
-    req: RegisterRequest, 
-    session: Session = Depends(get_company_session)
+    req: RegisterRequest, session: Session = Depends(get_company_session)
 ):
     """
     Register a new company and generate a unique API key.
-    
+
     Process:
     1. Validate company name
     2. Check for existing company with same name
     3. Generate unique API key
     4. Persist company record in database
-    
+
     Args:
-        req (RegisterRequest): 
-        
+        req (RegisterRequest):
+
             - name: Legal name of the company
-    
+
     Returns:
-        RegisterResponse: 
-        
+        RegisterResponse:
+
             - api_key: Generated API key for the company
             - message: Success confirmation message
     """
@@ -236,29 +232,30 @@ async def register_company(
         existing_company = session.exec(
             select(Company).where(func.lower(Company.name) == func.lower(req.name))
         ).first()
-        
+
         if existing_company:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail=f"Company '{req.name}' already exists"
+                detail=f"Company '{req.name}' already exists",
             )
-        
+
         company = create_company(req.name, session)
-        
+
         return RegisterResponse(
             api_key=company.api_key,
-            message=f"Company '{req.name}' registered successfully"
+            message=f"Company '{req.name}' registered successfully",
         )
-        
+
     except HTTPException:
         raise
-        
+
     except Exception as e:
         logger.error(f"Company registration failed: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to register company: {str(e)}"
+            detail=f"Failed to register company: {str(e)}",
         )
+
 
 @router.delete(
     "/company/delete",
@@ -272,18 +269,14 @@ async def register_company(
                 "application/json": {
                     "example": {
                         "task_id": "550e8400-e29b-41d4-a716-446655440000",
-                        "message": "Company deletion task started. Results will be sent to https://webhook.example.com"
+                        "message": "Company deletion task started. Results will be sent to https://webhook.example.com",
                     }
                 }
-            }
+            },
         },
         status.HTTP_401_UNAUTHORIZED: {
             "description": "Invalid or missing API key",
-            "content": {
-                "application/json": {
-                    "example": {"detail": "Invalid API Key"}
-                }
-            }
+            "content": {"application/json": {"example": {"detail": "Invalid API Key"}}},
         },
         status.HTTP_400_BAD_REQUEST: {
             "description": "Invalid webhook URL",
@@ -291,19 +284,21 @@ async def register_company(
                 "application/json": {
                     "example": {"detail": "Invalid webhook URL format"}
                 }
-            }
+            },
         },
         status.HTTP_500_INTERNAL_SERVER_ERROR: {
             "description": "Failed to queue deletion task",
             "content": {
                 "application/json": {
-                    "example": {"detail": "Failed to start deletion task: Broker connection error"}
+                    "example": {
+                        "detail": "Failed to start deletion task: Broker connection error"
+                    }
                 }
-            }
-        }
+            },
+        },
     },
     response_model=TaskResponse,
-    status_code=status.HTTP_202_ACCEPTED
+    status_code=status.HTTP_202_ACCEPTED,
 )
 async def delete_company(
     body: WebhookRequest,
@@ -311,80 +306,155 @@ async def delete_company(
 ):
     """
     Initiate company deletion process as an asynchronous task.
-    
+
     Process:
     1. Validate webhook URL format
     2. Queue deletion task in Celery
     3. Return task ID for tracking
-    
+
     Important:
     - Actual deletion happens asynchronously
     - Results will be sent to the provided webhook URL
     - This action is irreversible
-    
+
     Args:
-        body (WebhookRequest): 
-        
+        body (WebhookRequest):
+
             - webhook_url: URL to receive deletion result notification
-        
+
     Returns:
-        TaskResponse: 
-        
+        TaskResponse:
+
             - task_id: Celery task ID for tracking
             - message: Confirmation message with webhook URL
     """
     try:
         task = delete_company_task.delay(
-            company_id=company.id, 
-            url=str(body.webhook_url)
+            company_id=company.id, url=str(body.webhook_url)
         )
-        
+
         return TaskResponse(
             task_id=task.id,
             message=f"Company deletion task started. Results will be sent to {body.webhook_url}",
-            monitoring_url=f"/company/delete/status/{task.id}"
+            monitoring_url=f"/company/delete/status/{task.id}",
         )
-        
+
     except HTTPException:
         raise
-        
+
     except Exception as e:
         logger.error(f"Failed to start deletion task: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to start deletion task: {str(e)}"
+            detail=f"Failed to start deletion task: {str(e)}",
         )
 
 
 @router.post(
-    "/documents/upload", dependencies=[Depends(get_current_company)], tags=["Documents"]
+    "/documents/upload",
+    tags=["Documents"],
+    summary="Upload documents for a company",
+    response_description="Task ID for the upload operation",
+    responses={
+        status.HTTP_202_ACCEPTED: {
+            "description": "Upload task successfully queued",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "task_id": "550e8400-e29b-41d4-a716-446655440000",
+                        "message": "Document upload task started. Results will be sent to https://webhook.example.com",
+                        "monitoring_url": "/documents/upload/status/550e8400-e29b-41d4-a716-446655440000",
+                    }
+                }
+            },
+        },
+        status.HTTP_401_UNAUTHORIZED: {
+            "description": "Invalid or missing API key",
+            "content": {"application/json": {"example": {"detail": "Invalid API Key"}}},
+        },
+        status.HTTP_400_BAD_REQUEST: {
+            "description": "Invalid request format or webhook URL",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Invalid webhook URL format"}
+                }
+            },
+        },
+        status.HTTP_500_INTERNAL_SERVER_ERROR: {
+            "description": "Failed to queue upload task",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "Failed to start upload task: Broker connection error"
+                    }
+                }
+            },
+        },
+    },
+    response_model=TaskResponse,
+    status_code=status.HTTP_202_ACCEPTED,
 )
 async def upload(
-    body: dict,
+    body: UploadWithWebhookRequest,
     company: Company = Depends(get_current_company),
 ):
     """
-    Upload documents for a company.
+    Initiate document upload process as an asynchronous task.
+
+    Process:
+    1. Parse and validate request body (two separate models)
+    2. Queue upload task in Celery
+    3. Return task ID for tracking
+
+    Important:
+    - Actual upload happens asynchronously
+    - Results will be sent to the provided webhook URL
+    - **Can only upload documents types: PDF, DOCX**
+    - Azure AI Search upload documents asynchronously, so it can take some time to finish. Although the success response is returning immediately.
 
     Args:
-        req (UploadRequest): The request object containing the documents to upload.
-        x-apy-key (Header): Company API key from header.
-        webhook_url (str): Webhook URL to send task result.
+        body (UploadWithWebhookRequest):
+
+            - documents: List of documents urls to upload
+            - webhook_url: URL to receive upload result notification
 
     Returns:
-        TaskResponse: The response object containing the task ID.
+        TaskResponse:
+
+            - task_id: Celery task ID for tracking
+            - message: Confirmation message with webhook URL
+            - monitoring_url: URL to check task status
     """
     try:
-        req = UploadRequest(**body)
-        webhook = WebhookRequest(**body)
-    except Exception as e:
-        logger.error(f"Error while parsing request body: {e}")
-        return UploadResponse(status="failed", message="Invalid request body")
+        logger.info(f"Uploading documents for company {company.id}")
+        task = upload_documents_task.delay(
+            documents=body.documents, company_id=company.id, url=str(body.webhook_url)
+        )
 
-    task = upload_documents_task.delay(
-        documents=req.documents, company_id=company.id, url=webhook.webhook_url
-    )
-    return TaskResponse(task_id=task.task_id)
+        return TaskResponse(
+            task_id=task.id,
+            message=f"Document upload task started. Results will be sent to {body.webhook_url}",
+            monitoring_url=f"/documents/upload/status/{task.id}",
+        )
+    except ValidationError as ve:
+        logger.error(f"Validation error in request body: {ve}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid request body"
+        )
+    except KeyError as ke:
+        logger.error(f"Missing required field in request body: {ke}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Missing required field: {ke}"
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to start upload task: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to start upload task: {e}",
+        )
 
 
 @router.delete(

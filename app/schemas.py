@@ -12,7 +12,11 @@ class RegisterResponse(BaseModel):
 
 
 class UploadRequest(BaseModel):
-    documents: list[str]
+    documents: list[str] = Field(
+        ...,
+        examples=[["path/to/doc1.pdf", "doc2.docx"]],
+        description="List of document filenames to upload"
+    )
 
 
 class ChatRequest(BaseModel):
@@ -54,3 +58,24 @@ class HealthResponse(BaseModel):
     status: bool
     message: str
     services: dict
+
+
+class UploadWithWebhookRequest(BaseModel):
+    documents: list[str] = Field(
+        ...,
+        examples=[["path/to/doc1.pdf", "doc2.docx"]],
+        description="List of document filenames to upload"
+    )
+    webhook_url: HttpUrl = Field(
+        ...,
+        examples=["https://client.example.com/webhook"], 
+        description="Valid HTTPS URL for result notification"
+    )
+
+    # class Config:
+    #     schema_extra = {
+    #         "example": {
+    #             "documents": ["path/to/doc1.pdf", "doc2.docx"],
+    #             "webhook_url": "https://client.example.com/webhook" 
+    #         }
+    #     }
