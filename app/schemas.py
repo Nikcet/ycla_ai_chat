@@ -21,7 +21,7 @@ class UploadRequest(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    question: str
+    question: str = Field(..., examples=["Расскажите кратко о вашей компании"])
 
 
 class ChatResponse(BaseModel):

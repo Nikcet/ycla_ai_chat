@@ -776,7 +776,57 @@ async def get_company_deleting_status(task_id: str):
     return TaskStatusResponse(status=task.status, result=task.result)
 
 
-@router.post("/chat", tags=["Chat"])
+@router.post(
+    "/chat",
+    tags=["Chat"],
+    summary="Handle a chat request using company-specific knowledge base",
+    response_description="Answer to the question with updated JWT token",
+    responses={
+        status.HTTP_200_OK: {
+            "description": "Successful response with answer",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "answer": "The answer to your question is based on the provided context."
+                    }
+                }
+            },
+            "headers": {
+                "x-jwt-token": {
+                    "description": "Updated JWT token for subsequent requests",
+                    "schema": {"type": "string"}
+                }
+            }
+        },
+        status.HTTP_401_UNAUTHORIZED: {
+            "description": "Invalid or missing API key",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Invalid API Key"}
+                }
+            }
+        },
+        status.HTTP_503_SERVICE_UNAVAILABLE: {
+            "description": "AI service unavailable",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "Failed to retrieve response from Azure OpenAI or Deepseek API. Try later."
+                    }
+                }
+            }
+        },
+        status.HTTP_500_INTERNAL_SERVER_ERROR: {
+            "description": "Internal server error",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Unexpected error. Failed to retrieve response from AI API"}
+                }
+            }
+        }
+    },
+    status_code=status.HTTP_200_OK
+)
 async def chat(
     req: ChatRequest,
     company: Company = Depends(get_current_company),
@@ -786,18 +836,36 @@ async def chat(
     search_client=Depends(get_search_client),
 ):
     """
-    Handle a chat request and return a response.
-
+    Process a chat request using company-specific knowledge base and conversation history.
+    
+    Process:
+    1. Validate authentication and session
+    2. Retrieve conversation history from Redis
+    3. Search relevant documents using vector similarity
+    4. Generate answer using AI model (Azure/OpenAI or fallback to Deepseek)
+    5. Save conversation history
+    6. Return answer with updated JWT token
+    
+    Important:
+    - Uses Redis to maintain conversation state
+    - Supports multiple AI backends with fallback mechanism
+    - Requires valid company authentication
+    - JWT token is automatically refreshed in headers
+    
     Args:
-        req (ChatRequest): The request object containing the question.
-        x-apy-key (Header): Company API key from header.
-        x-jwt-token (Header): JWT token from header "Authorization". If is not, it will be created. Starts with "Bearer ".
-
+    
+        - question: User's query text
+            
     Returns:
-        JSONResponse: The response object containing the answer and jwt in header.
-
+        - answer: Generated response to the question
+        - x-jwt-token: Updated JWT token in headers for subsequent requests
+    
     Raises:
-        HTTPException: If there is an error while handling the chat request.
+    
+        HTTPException:
+            - 401: Invalid authentication credentials
+            - 503: AI service unavailable
+            - 500: Unexpected internal server error
     """
 
     session_id, jwt_token = session_data
