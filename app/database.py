@@ -10,12 +10,17 @@ from app.utils import create_batch, encode_document_key
 from app.clients import engine, search_client
 
 
-def upload_documents(documents: list[str], company_id: str) -> dict[str, bool]:
+def upload_documents(
+    documents: list[dict], company_id: str
+) -> dict[str, bool]:
     try:
-        for file_path in documents:
+        for file_data in documents:
             doc_id = uuid()
             batch = create_batch(
-                company_id=company_id, file_path=file_path, document_id=doc_id
+                company_id=company_id,
+                file_content=file_data["file"],
+                file_name=file_data["file_name"],
+                document_id=doc_id,
             )
 
             for doc in batch:
@@ -28,7 +33,7 @@ def upload_documents(documents: list[str], company_id: str) -> dict[str, bool]:
                 with Session(engine) as session:
                     session.add(
                         FileMetadata(
-                            file_name=file_path,
+                            file_name=file_data["file_name"],
                             company_id=company_id,
                             document_id=doc_id,
                         )
@@ -39,7 +44,7 @@ def upload_documents(documents: list[str], company_id: str) -> dict[str, bool]:
 
         return {"indexed": True}
     except Exception as e:
-        logger.error(f"Error while work with file '{file_path}': {e}")
+        logger.error(f"Error while work with file '{file_data['file_name']}': {e}")
         return {"indexed": False}
 
 
@@ -55,6 +60,7 @@ def get_documents(company_id: str) -> list[FileMetadata] | None:
     except Exception as e:
         logger.error(f"Error while getting files: {e}")
         return None
+
 
 def delete_documents(company_id: str) -> dict[str, bool]:
     try:
@@ -114,18 +120,16 @@ def create_company(company_name: str, session: Session) -> Company | None:
 
 
 def save_admin_prompt(
-    admin_prompt: AdminPrompt,
-    company: Company,
-    session: Session
+    admin_prompt: AdminPrompt, company: Company, session: Session
 ) -> bool:
     """
     Save or update admin prompt in database with transaction safety.
-    
+
     Args:
         req: Request object containing prompt data
         company: Company entity
         session: Database session
-        
+
     Returns:
         bool: True if operation succeeded
     """
@@ -136,19 +140,16 @@ def save_admin_prompt(
         if old_prompt:
             session.delete(old_prompt)
 
-            
-        
         new_prompt = AdminPrompt(prompt=admin_prompt.prompt, company_id=company.id)
         session.add(new_prompt)
         session.commit()
 
-        
         return True
-        
+
     except ValueError as ve:
         logger.warning(f"Validation failed for prompt: {ve}")
         raise ve
-        
+
     except Exception as e:
         logger.error(f"Database error while saving prompt: {e}")
         session.rollback()

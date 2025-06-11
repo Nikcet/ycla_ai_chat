@@ -12,12 +12,12 @@ class RegisterResponse(BaseModel):
     message: str
 
 
-class UploadRequest(BaseModel):
-    documents: list[str] = Field(
-        ...,
-        examples=[["path/to/doc1.pdf", "doc2.docx"]],
-        description="List of documents filenames to upload",
-    )
+# class UploadRequest(BaseModel):
+#     documents: list[str] = Field(
+#         ...,
+#         examples=[["path/to/doc1.pdf", "doc2.docx"]],
+#         description="List of documents filenames to upload",
+#     )
 
 
 class ChatRequest(BaseModel):
@@ -61,12 +61,28 @@ class HealthResponse(BaseModel):
     services: dict
 
 
-class UploadWithWebhookRequest(BaseModel):
-    documents: list[str] = Field(
+class UploadFileRequest(BaseModel):
+    file: bytes = Field(..., description="Binary content of the uploaded file")
+    file_name: str = Field(..., description="Name of the uploaded file")
+
+    class Config:
+        schema_extra = {"example": {"file": "binary_data", "file_name": "example.pdf"}}
+
+
+class UploadRequest(BaseModel):
+    files: list[UploadFileRequest] = Field(
         ...,
-        examples=[["path/to/doc1.pdf", "doc2.docx"]],
-        description="List of document filenames to upload",
+        description="List of uploaded files",
+        examples=[["binary_file", "binary_file"]],
     )
+
+
+class DeleteDocumentRequest(BaseModel):
+    document_id: str
+
+
+class UploadWithWebhookRequest(BaseModel):
+    # files: list[UploadFileRequest] = Field(..., description="List of uploaded files")
     webhook_url: HttpUrl = Field(
         ...,
         examples=["https://client.example.com/webhook"],
@@ -80,9 +96,10 @@ class DeleteDocumentResponse(BaseModel):
     class Config:
         schema_extra = {"example": {"status": {"success": True}}}
 
+
 class DocumentListResponse(BaseModel):
     documents: list[FileMetadata] = []
-    
+
     class Config:
         schema_extra = {
             "example": {
@@ -91,15 +108,14 @@ class DocumentListResponse(BaseModel):
                         "id": "550e8400-e29b-41d4-a716-446655440000",
                         "file_name": "report.pdf",
                         "company_id": "company_001",
-                        "document_id": "doc_123"
+                        "document_id": "doc_123",
                     },
                     {
                         "id": "550e8400-e29b-41d4-a716-446655440001",
                         "file_name": "presentation.pptx",
                         "company_id": "company_001",
-                        "document_id": "doc_456"
-                    }
+                        "document_id": "doc_456",
+                    },
                 ]
             }
         }
-
