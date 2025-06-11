@@ -11,6 +11,7 @@ from fastapi import HTTPException
 import json
 from redis import asyncio as aioredis
 import requests
+from io import BytesIO
 
 client = AzureOpenAI(
     api_key=settings.api_key,
@@ -75,14 +76,13 @@ def chunk_text(text: str, size: int = 1000) -> List[str]:
     return chunks
 
 
-def extract_text_from_pdf(file_path: Union[str, Path]) -> str:
+def extract_text_from_pdf(content: bytes) -> str:
     """
     Extract text from PDF with proper error handling
     """
     try:
-        logger.info(f"Extracting text from PDF: {file_path}")
-        file_path = Path(file_path)
-        reader = PdfReader(str(file_path))
+        logger.info("Extracting text from PDF")
+        reader = PdfReader(BytesIO(content))
         text = ""
 
         for page_num, page in enumerate(reader.pages, 1):
@@ -94,27 +94,18 @@ def extract_text_from_pdf(file_path: Union[str, Path]) -> str:
         logger.info(f"Successfully extracted {len(cleaned_text)} characters from PDF")
         return cleaned_text
 
-    except FileNotFoundError:
-        logger.error(f"PDF file not found: {file_path}")
-        raise ValueError(f"File not found: {file_path}")
     except Exception as e:
         logger.error(f"Error extracting PDF content: {str(e)}", exc_info=True)
         raise ValueError(f"PDF extraction failed: {str(e)}") from e
 
 
-def extract_text_from_docx(file_path: Union[str, Path]) -> str:
+def extract_text_from_docx(content: bytes) -> str:
     """
     Extract text from DOCX with proper error handling
     """
     try:
-        logger.info(f"Extracting text from DOCX: {file_path}")
-        file_path = Path(file_path)
-
-        if not file_path.exists():
-            logger.error(f"DOCX file does not exist: {file_path}")
-            raise ValueError(f"File not found: {file_path}")
-
-        text = docx2txt.process(str(file_path)).strip()
+        logger.info("Extracting text from DOCX")
+        text = docx2txt.process(BytesIO(content)).strip()
         logger.info(f"Successfully extracted {len(text)} characters from DOCX")
         return text
 
@@ -123,30 +114,25 @@ def extract_text_from_docx(file_path: Union[str, Path]) -> str:
         raise ValueError(f"DOCX extraction failed: {str(e)}") from e
 
 
-def extract_text(file_path: str) -> str:
+def extract_text(file_content: bytes, file_name: str) -> str:
     """
     Extract text from various file types with validation
     """
-    logger.info(f"Starting text extraction for file: {file_path}")
+    logger.info(f"Starting text extraction for file: {file_name}")
 
-    if not isinstance(file_path, (str, Path)):
-        logger.error("Invalid file path type")
-        raise TypeError("file_path must be string or Path")
+    if not isinstance(file_content, bytes):
+        logger.error("Input file must be bytes")
+        raise TypeError("Input file must be bytes")
 
-    file_path = Path(file_path)
-    if not file_path.exists():
-        logger.error(f"File does not exist: {file_path}")
-        raise ValueError(f"File not found: {file_path}")
-
-    ext = file_path.suffix.lower()
+    ext = Path(file_name).suffix.lower()
     logger.debug(f"Detected file extension: {ext}")
 
     try:
         match ext:
             case ".pdf":
-                return extract_text_from_pdf(file_path)
+                return extract_text_from_pdf(file_content)
             case ".docx":
-                return extract_text_from_docx(file_path)
+                return extract_text_from_docx(file_content)
             case _:
                 logger.warning(f"Unsupported file type: {ext}")
                 raise ValueError(f"Unsupported file type: {ext}")
@@ -159,26 +145,26 @@ def extract_text(file_path: str) -> str:
         raise ValueError(f"Text extraction failed: {str(e)}") from e
 
 
-def create_batch(company_id: str, file_path: str, document_id: str) -> List[dict]:
+def create_batch(company_id: str, file_content: bytes, file_name: str, document_id: str) -> List[dict]:
     """
     Create document batch with comprehensive error handling
     """
     logger.info(f"Creating batch for company {company_id}, document {document_id}")
 
-    if not all([company_id, file_path, document_id]):
+    if not all([company_id, file_content, file_name, document_id]):
         logger.error("Missing required parameters")
         raise ValueError("Missing required parameters for batch creation")
 
     try:
-        text = extract_text(file_path)
-        logger.info(f"Extracted {len(text)} characters from {file_path}")
+        text = extract_text(file_content=file_content, file_name=file_name)
+        logger.info(f"Extracted {len(text)} characters from {file_name}")
 
         if not text:
             logger.warning("Empty text extracted from file")
             raise ValueError("No text extracted from file")
 
         chunks = chunk_text(text, int(settings.embedding_model_size))
-        logger.info(f"Created {len(chunks)} chunks for document {document_id}")
+        logger.info(f"Created {len(chunks)} chunks for document {file_name}")
 
         batch = []
         for i, chunk in enumerate(chunks):

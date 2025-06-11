@@ -66,6 +66,9 @@ class App_settings(BaseSettings):
     jwt_secret_key: str = os.getenv("JWT_SECRET_KEY", "")
     jwt_algorithm: str = os.getenv("JWT_ALGORITHM", "")
     session_ttl: int = 86400
+    
+    supported_extensions: set[str] = {".pdf", ".docx"}
+    max_file_size: int = 1024 * 1024 * 100 # 100 MB
 
 @lru_cache
 def get_app_settings():

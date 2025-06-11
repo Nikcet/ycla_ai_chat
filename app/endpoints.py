@@ -1,6 +1,6 @@
 import json
-from pydantic import ValidationError
-from fastapi import APIRouter, Depends, HTTPException, status, Path
+from pydantic import ValidationError, HttpUrl
+from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile, Form, Path
 from fastapi.responses import JSONResponse
 from azure.search.documents.models import VectorizedQuery
 from azure.core.exceptions import ServiceRequestError
@@ -29,7 +29,6 @@ from app.schemas import (
     AdminPromptRequest,
     WebhookRequest,
     HealthResponse,
-    UploadWithWebhookRequest,
     DeleteDocumentResponse,
     DocumentListResponse,
 )
@@ -363,8 +362,20 @@ async def delete_company(
                 "application/json": {
                     "example": {
                         "task_id": "550e8400-e29b-41d4-a716-446655440000",
-                        "message": "Document upload task started. Results will be sent to https://webhook.example.com",
+                        "message": "Document upload task started. Results will be sent to https://webhook.example.com",   
                         "monitoring_url": "/documents/upload/status/550e8400-e29b-41d4-a716-446655440000",
+                    }
+                }
+            },
+        },
+        status.HTTP_400_BAD_REQUEST: {
+            "description": "Validation error, unsupported file type, or file too large",
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "Invalid file type": {"value": {"detail": "Unsupported file type: .xlsx"}},
+                        "File too large": {"value": {"detail": "File 'report.pdf' exceeds 10 MB limit"}},
+                        "Invalid webhook URL": {"value": {"detail": "Invalid webhook URL format"}}
                     }
                 }
             },
@@ -373,16 +384,8 @@ async def delete_company(
             "description": "Invalid or missing API key",
             "content": {"application/json": {"example": {"detail": "Invalid API Key"}}},
         },
-        status.HTTP_400_BAD_REQUEST: {
-            "description": "Invalid request format or webhook URL",
-            "content": {
-                "application/json": {
-                    "example": {"detail": "Invalid webhook URL format"}
-                }
-            },
-        },
         status.HTTP_500_INTERNAL_SERVER_ERROR: {
-            "description": "Failed to queue upload task",
+            "description": "Internal server error during upload",
             "content": {
                 "application/json": {
                     "example": {
@@ -396,45 +399,76 @@ async def delete_company(
     status_code=status.HTTP_202_ACCEPTED,
 )
 async def upload(
-    body: UploadWithWebhookRequest,
+    webhook_url: HttpUrl = Form(...), 
+    files: list[UploadFile] = File(...),
     company: Company = Depends(get_current_company),
 ):
     """
     Initiate document upload process as an asynchronous task.
 
     Process:
-    1. Parse and validate request body (two separate models)
-    2. Queue upload task in Celery
-    3. Return task ID for tracking
+    1. Validate uploaded files and webhook URL
+    2. Read file content into memory
+    3. Queue background task for document processing
 
     Important:
     - Actual upload happens asynchronously
     - Results will be sent to the provided webhook URL
-    - **Can only upload documents types: PDF, DOCX**
-    - Azure AI Search upload documents asynchronously, so it can take some time to finish. Although the success response is returning immediately.
+    - **Only supports PDF and DOCX files**
+    - Files must not exceed 100 MB
+    - Azure AI Search upload is asynchronous, success response is immediate
 
     Args:
-        body (UploadWithWebhookRequest):
-
-            - documents: List of documents urls to upload
-            - webhook_url: URL to receive upload result notification
+    
+        webhook_url (HttpUrl): Valid HTTPS URL for result notification
+        files (list[UploadFile]): List of files to upload. Must be PDF or DOCX format
 
     Returns:
-        TaskResponse:
-
-            - task_id: Celery task ID for tracking
-            - message: Confirmation message with webhook URL
-            - monitoring_url: URL to check task status
+      
+        - task_id: Celery task ID for tracking
+        - message: Confirmation with webhook URL
+        - monitoring_url: URL to check task status
     """
+    from pathlib import Path
+    
+    logger.info(f"Uploading documents for company: name - {company.name}, id - {company.id}")
+
+    file_data = []
+    for file in files:
+        if Path(file.filename).suffix.lower() not in settings.supported_extensions:
+            logger.error(f"Unsupported file type: {file.filename}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Unsupported file type",
+            )
+        if file.size > settings.max_file_size:
+            logger.error(f"File exceeds size limit: {file.filename}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="File exceeds size limit",
+            )
+        try:
+            file_data.append({
+                "file": file.file.read(),
+                "file_name": file.filename
+            })
+        except Exception as e:
+            logger.error(f"Error reading file {file.filename}: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to read file: {file.filename}"
+            )
+        
+    
+    logger.info(f"Received documents to upload: {len(file_data)}. Company: name - {company.name}, id - {company.id}")
     try:
-        logger.info(f"Uploading documents for company {company.id}")
         task = upload_documents_task.delay(
-            documents=body.documents, company_id=company.id, url=str(body.webhook_url)
+            documents=file_data, company_id=company.id, url=str(webhook_url)
         )
 
         return TaskResponse(
             task_id=task.id,
-            message=f"Document upload task started. Results will be sent to {body.webhook_url}",
+            message=f"Document upload task started. Results will be sent to {webhook_url}",
             monitoring_url=f"/documents/upload/status/{task.id}",
         )
     except ValidationError as ve:

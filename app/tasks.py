@@ -11,7 +11,7 @@ from app.utils import send_webhook
 
 @celery_tasks.task
 def upload_documents_task(
-    documents: list[str], company_id: int, url: str
+    documents: list[dict], company_id: int, url: str
 ) -> dict[str, bool]:
     result = {
         "success": False,
