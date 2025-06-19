@@ -43,6 +43,14 @@ except Exception as e:
 
 
 try:
-    engine = create_engine(settings.pg_url, echo=True)
+    engine = create_engine(
+        settings.pg_url,
+        echo=True,
+        pool_pre_ping=True,
+        pool_recycle=300,
+        pool_timeout=10,
+        max_overflow=10,
+        pool_size=20,
+    )
 except Exception as e:
     logger.error(f"Error connecting to PostgreSQL: {e}")
