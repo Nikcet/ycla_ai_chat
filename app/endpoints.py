@@ -1,6 +1,15 @@
 import json
 from pydantic import ValidationError, HttpUrl
-from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile, Form, Path
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    status,
+    File,
+    UploadFile,
+    Form,
+    Path,
+)
 from fastapi.responses import JSONResponse
 from azure.search.documents.models import VectorizedQuery
 from azure.core.exceptions import ServiceRequestError
@@ -362,7 +371,7 @@ async def delete_company(
                 "application/json": {
                     "example": {
                         "task_id": "550e8400-e29b-41d4-a716-446655440000",
-                        "message": "Document upload task started. Results will be sent to https://webhook.example.com",   
+                        "message": "Document upload task started. Results will be sent to https://webhook.example.com",
                         "monitoring_url": "/documents/upload/status/550e8400-e29b-41d4-a716-446655440000",
                     }
                 }
@@ -373,9 +382,15 @@ async def delete_company(
             "content": {
                 "application/json": {
                     "examples": {
-                        "Invalid file type": {"value": {"detail": "Unsupported file type: .xlsx"}},
-                        "File too large": {"value": {"detail": "File 'report.pdf' exceeds 10 MB limit"}},
-                        "Invalid webhook URL": {"value": {"detail": "Invalid webhook URL format"}}
+                        "Invalid file type": {
+                            "value": {"detail": "Unsupported file type: .xlsx"}
+                        },
+                        "File too large": {
+                            "value": {"detail": "File 'report.pdf' exceeds 10 MB limit"}
+                        },
+                        "Invalid webhook URL": {
+                            "value": {"detail": "Invalid webhook URL format"}
+                        },
                     }
                 }
             },
@@ -399,7 +414,7 @@ async def delete_company(
     status_code=status.HTTP_202_ACCEPTED,
 )
 async def upload(
-    webhook_url: HttpUrl = Form(...), 
+    webhook_url: HttpUrl = Form(...),
     files: list[UploadFile] = File(...),
     company: Company = Depends(get_current_company),
 ):
@@ -419,19 +434,21 @@ async def upload(
     - Azure AI Search upload is asynchronous, success response is immediate
 
     Args:
-    
+
         webhook_url (HttpUrl): Valid HTTPS URL for result notification
         files (list[UploadFile]): List of files to upload. Must be PDF or DOCX format
 
     Returns:
-      
+
         - task_id: Celery task ID for tracking
         - message: Confirmation with webhook URL
         - monitoring_url: URL to check task status
     """
     from pathlib import Path
-    
-    logger.info(f"Uploading documents for company: name - {company.name}, id - {company.id}")
+
+    logger.info(
+        f"Uploading documents for company: name - {company.name}, id - {company.id}"
+    )
 
     file_data = []
     for file in files:
@@ -448,19 +465,17 @@ async def upload(
                 detail="File exceeds size limit",
             )
         try:
-            file_data.append({
-                "file": file.file.read(),
-                "file_name": file.filename
-            })
+            file_data.append({"file": file.file.read(), "file_name": file.filename})
         except Exception as e:
             logger.error(f"Error reading file {file.filename}: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to read file: {file.filename}"
+                detail=f"Failed to read file: {file.filename}",
             )
-        
-    
-    logger.info(f"Received documents to upload: {len(file_data)}. Company: name - {company.name}, id - {company.id}")
+
+    logger.info(
+        f"Received documents to upload: {len(file_data)}. Company: name - {company.name}, id - {company.id}"
+    )
     try:
         task = upload_documents_task.delay(
             documents=file_data, company_id=company.id, url=str(webhook_url)
@@ -1020,6 +1035,175 @@ async def chat(
     return JSONResponse(content={"answer": answer}, headers={"x-jwt-token": jwt_token})
 
 
+@router.delete(
+    "/chat/clear",
+    tags=["Chat"],
+    summary="Clear all chat history for the current company",
+    response_description="Confirmation of deletion",
+    responses={
+        status.HTTP_200_OK: {
+            "description": "History cleared successfully",
+            "content": {
+                "application/json": {"example": {"detail": "Chat history cleared"}}
+            },
+            "headers": {
+                "x-jwt-token": {
+                    "description": "Updated JWT token for subsequent requests",
+                    "schema": {"type": "string"},
+                }
+            },
+        },
+        status.HTTP_401_UNAUTHORIZED: {
+            "description": "Invalid or missing API key",
+            "content": {"application/json": {"example": {"detail": "Invalid API Key"}}},
+        },
+        status.HTTP_500_INTERNAL_SERVER_ERROR: {
+            "description": "Internal server error during deletion",
+        },
+    },
+    status_code=status.HTTP_200_OK,
+)
+async def clear_chat_history(
+    company: Company = Depends(get_current_company),
+    session_data: tuple = Depends(get_session_from_jwt),
+    redis=Depends(get_redis_connection),
+):
+    """
+    Delete all chat history for the current company.
+
+    Process:
+    1. Validate company authentication
+    2. Find all Redis keys matching company history pattern
+    3. Delete all found keys
+
+    Important:
+    - Affects all chat sessions within the company
+    - Irreversible operation
+
+    Returns:
+    
+        - detail: Operation result message
+        - x-jwt-token: Updated JWT token in headers
+
+    Raises:
+    
+        HTTPException:
+            - 401: Invalid authentication
+            - 500: Redis operation error
+    """
+    _, jwt_token = session_data  # Session ID not needed for this operation
+    pattern = f"history:{company.id}:*"
+
+    try:
+        # Find all keys matching company pattern
+        keys = []
+        cursor = "0"
+        while cursor != 0:
+            cursor, partial_keys = await redis.scan(cursor, match=pattern, count=1000)
+            keys.extend(partial_keys)
+
+        # Delete keys if found
+        if keys:
+            await redis.delete(*keys)
+            msg = f"Deleted {len(keys)} chat sessions"
+        else:
+            msg = "No chat history found"
+
+        logger.info(f"{msg} for company {company.id}")
+        return JSONResponse(content={"detail": msg}, headers={"x-jwt-token": jwt_token})
+
+    except Exception as e:
+        logger.error(f"Redis clearance error for company {company.id}: {e}")
+        raise HTTPException(
+            status_code=500, detail="Internal server error during history clearance"
+        )
+
+
+@router.get(
+    "/chat/sessions",
+    tags=["Chat"],
+    summary="Get count of active chat sessions for the company",
+    response_description="Number of active sessions",
+    responses={
+        status.HTTP_200_OK: {
+            "description": "Successful response with session count",
+            "content": {
+                "application/json": {
+                    "example": {"count": 5}
+                }
+            },
+            "headers": {
+                "x-jwt-token": {
+                    "description": "Updated JWT token for subsequent requests",
+                    "schema": {"type": "string"},
+                }
+            },
+        },
+        status.HTTP_401_UNAUTHORIZED: {
+            "description": "Invalid or missing API key",
+            "content": {"application/json": {"example": {"detail": "Invalid API Key"}}},
+        },
+        status.HTTP_500_INTERNAL_SERVER_ERROR: {
+            "description": "Redis operation error",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Failed to retrieve session count"}
+                }
+            },
+        },
+    },
+)
+async def get_active_sessions_count(
+    company: Company = Depends(get_current_company),
+    session_data: tuple = Depends(get_session_from_jwt),
+    redis=Depends(get_redis_connection),
+):
+    """
+    Get the count of active chat sessions for the current company.
+
+    Process:
+    1. Validate company authentication
+    2. Scan Redis keys matching company session pattern
+    3. Count matching keys
+
+    Important:
+    - Active session = any existing history key for the company
+    - Uses efficient Redis SCAN instead of KEYS for large datasets
+
+    Returns:
+    
+        - count: Number of active sessions
+        - x-jwt-token: Updated JWT token in headers
+
+    Raises:
+    
+        HTTPException:
+            - 401: Invalid authentication
+            - 500: Redis operation error
+    """
+    _, jwt_token = session_data
+    pattern = f"history:{company.id}:*"
+    session_count = 0
+
+    try:
+        cursor = '0'
+        while cursor != 0:
+            cursor, keys = await redis.scan(cursor, match=pattern, count=1000)
+            session_count += len(keys)
+        
+        logger.info(f"Found {session_count} active sessions for company {company.id}")
+        return JSONResponse(
+            content={"count": session_count},
+            headers={"x-jwt-token": jwt_token}
+        )
+            
+    except Exception as e:
+        logger.error(f"Redis count error for company {company.id}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to retrieve session count"
+        )
+
 @router.post(
     "/prompt",
     dependencies=[Depends(get_current_company), Depends(get_company_session)],
@@ -1029,40 +1213,34 @@ async def chat(
     responses={
         status.HTTP_200_OK: {
             "description": "Prompt successfully saved",
-            "content": {
-                "application/json": {
-                    "example": {
-                        "saved": True
-                    }
-                }
-            }
+            "content": {"application/json": {"example": {"saved": True}}},
         },
         status.HTTP_400_BAD_REQUEST: {
             "description": "Invalid request data",
             "content": {
                 "application/json": {
-                    "example": {"detail": "Invalid prompt format: Prompt must contain at least 5 characters"}
+                    "example": {
+                        "detail": "Invalid prompt format: Prompt must contain at least 5 characters"
+                    }
                 }
-            }
+            },
         },
         status.HTTP_401_UNAUTHORIZED: {
             "description": "Invalid or missing API key",
-            "content": {
-                "application/json": {
-                    "example": {"detail": "Invalid API Key"}
-                }
-            }
+            "content": {"application/json": {"example": {"detail": "Invalid API Key"}}},
         },
         status.HTTP_500_INTERNAL_SERVER_ERROR: {
             "description": "Internal server error",
             "content": {
                 "application/json": {
-                    "example": {"detail": "Failed to save prompt: Database connection timeout"}
+                    "example": {
+                        "detail": "Failed to save prompt: Database connection timeout"
+                    }
                 }
-            }
-        }
+            },
+        },
     },
-    status_code=status.HTTP_200_OK
+    status_code=status.HTTP_200_OK,
 )
 async def save_prompt(
     req: AdminPromptRequest,
@@ -1071,26 +1249,26 @@ async def save_prompt(
 ):
     """
     Save or update the administrative prompt for a company.
-    
+
     Process:
     1. Validate incoming request data
     2. Save prompt to database
     3. Return operation result
-    
+
     Important:
     - Requires valid company authentication
     - Overwrites existing prompt if one exists
     - Supports rich text formatting in prompt content
-    
+
     Args:
         - prompt: New prompt text to save
-            
+
     Returns:
-    
+
         - saved: Boolean indicating success (True) or failure (False)
-            
+
     Raises:
-    
+
         HTTPException:
             - 400: Invalid request data
             - 401: Authentication failed
@@ -1104,14 +1282,16 @@ async def save_prompt(
             logger.error(f"Validation error in prompt request: {ve}")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid prompt format: {ve}"
+                detail=f"Invalid prompt format: {ve}",
             )
-        
+
         except Exception as e:
-            logger.error(f"Critical error saving prompt for company {company.id}: {str(e)}")
+            logger.error(
+                f"Critical error saving prompt for company {company.id}: {str(e)}"
+            )
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to save prompt: {str(e)}"
+                detail=f"Failed to save prompt: {str(e)}",
             )
     except Exception as e:
         logger.error(f"Error saving admin prompt: {e}")
