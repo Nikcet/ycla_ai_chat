@@ -9,7 +9,7 @@ from app.clients import engine
 app = FastAPI(
     title="Ycla AI API",
     summary="API of Ycla AI service: https://ycla.ai/",
-    version="0.8.3",
+    version="0.8.4",
 )
 app.add_middleware(
     CORSMiddleware,
